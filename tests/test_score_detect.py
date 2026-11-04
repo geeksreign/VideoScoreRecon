@@ -108,3 +108,24 @@ def test_multiple_candidates_pick_valid_largest():
     rect = find_score_rect(img)
     assert rect is not None
     assert rect[1] >= 330, f"应选中下部合格候选，实际 rect={rect}"
+
+
+def test_thin_white_band_rejected():
+    """回归：片头/片尾顶部白色薄条（<12.5% 视频高）不是乐谱 → None"""
+    img = _canvas()
+    # 48px 高白条 = 10%h，位于顶部（无四边形候选场景）
+    _draw_white_block(img, 0, 0, W, 48)
+    rect = find_score_rect(img)
+    assert rect is None, f"薄白带应被拒，实际 rect={rect}"
+
+
+def test_normal_height_band_passes():
+    """正常高度白带（33%h）不被 min_band_ratio 误杀"""
+    img = _canvas()
+    _draw_bottom_band(img)          # 320..480 = 160px = 33.3%h
+    # 白带内典型乐谱暗内容
+    for y in range(330, 475, 25):
+        img[y:y + 2, 10:840] = BLACK
+    rect = find_score_rect(img)
+    assert rect is not None, "正常高度白带不应被拒"
+    assert rect[1] >= 300, f"应选中底部区域，实际 rect={rect}"

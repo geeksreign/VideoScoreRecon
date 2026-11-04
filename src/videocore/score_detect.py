@@ -31,7 +31,8 @@ def _looks_like_score(gray, x, y, cw, ch, min_dark=0.002, max_dark=0.15):
 
 
 def find_score_rect(img, thresh=200, min_w_ratio=0.5, min_h_ratio=0.08,
-                    top_ratio=0.18, bottom_ratio=0.35, pad=6):  # 调小了 top_ratio
+                    top_ratio=0.18, bottom_ratio=0.35, pad=6,
+                    min_band_ratio=0.125):  # 调小了 top_ratio
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))
@@ -63,15 +64,19 @@ def find_score_rect(img, thresh=200, min_w_ratio=0.5, min_h_ratio=0.08,
     paper = find_paper_band(gray)
     if paper is not None:
         paper_top, paper_bottom = paper
-        white_mask = gray > 200
-        band = white_mask[paper_top:paper_bottom + 1]
-        xs = np.where(band.any(axis=0))[0]
-        if len(xs):
-            x1 = max(0, int(xs.min()) - pad)
-            y1 = max(0, paper_top)
-            x2 = min(w, int(xs.max()) + pad + 1)
-            y2 = min(h, paper_bottom + 1)
-            return x1, y1, x2, y2
+        # 白带最小高度校验：片头/片尾画面顶部的白色薄条（标题卡/字幕条，
+        # 实测仅 4%~11% 视频高）不是乐谱；正常乐谱带实测 >=15%~47%h。
+        band_h = paper_bottom - paper_top + 1
+        if band_h >= h * min_band_ratio:
+            white_mask = gray > 200
+            band = white_mask[paper_top:paper_bottom + 1]
+            xs = np.where(band.any(axis=0))[0]
+            if len(xs):
+                x1 = max(0, int(xs.min()) - pad)
+                y1 = max(0, paper_top)
+                x2 = min(w, int(xs.max()) + pad + 1)
+                y2 = min(h, paper_bottom + 1)
+                return x1, y1, x2, y2
     return None
 
 
