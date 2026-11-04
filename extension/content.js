@@ -34,7 +34,14 @@
     return parseFloat(s);
   }
 
+  // 数值解析：合法数字（含 0）生效，空/非法回退默认值
+  function num(v, def) {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : def;
+  }
+
   let polling = false;
+  let resultUrl = null;   // 上一次结果的 Blob URL，用于及时释放
 
   function buildUI() {
     if (document.getElementById('score-ext-btn')) return;
@@ -137,8 +144,8 @@
       url: location.href,
       start_time: parseTime(p.querySelector('#se-start').value),
       end_time: parseTime(p.querySelector('#se-end').value),
-      interval_sec: parseFloat(p.querySelector('#se-interval').value) || 2,
-      dedup_threshold: parseFloat(p.querySelector('#se-thresh').value) || 0.01,
+      interval_sec: num(p.querySelector('#se-interval').value, 2),
+      dedup_threshold: num(p.querySelector('#se-thresh').value, 0.01),
       cookie: p.querySelector('#se-cookie').value.trim() || undefined,
     };
     document.getElementById('se-result').classList.remove('se-visible');
@@ -189,7 +196,9 @@
       return;
     }
     const blob = await r.blob();
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
     const url = URL.createObjectURL(blob);
+    resultUrl = url;
     const resultEl = document.getElementById('se-result');
     resultEl.querySelector('#se-result-img').src = url;
     const a = resultEl.querySelector('#se-download');

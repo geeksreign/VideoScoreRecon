@@ -147,10 +147,26 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
     total_frames = int(round(duration * fps)) if duration else None
     last_pct = -1
 
+    def tick_progress(force_msg=None):
+        """按 1% 粒度节流上报 extract 进度"""
+        nonlocal last_pct
+        if not total_frames:
+            return
+        if frame_count % max(1, total_frames // 100) != 0:
+            return
+        pct = int(frame_count / total_frames * 100)
+        if pct == last_pct and not force_msg:
+            return
+        last_pct = pct
+        msg = force_msg or f"抽帧 {frame_count}/{total_frames}"
+        report("extract", min(1.0, frame_count / total_frames), msg)
+
     frames = iio.imiter(str(src), plugin="FFMPEG")
     for frame in frames:
         if frame_count < start_frame:
             frame_count += 1
+            # 跳至 start_time 的阶段也上报进度，避免进度条长时间停 0%
+            tick_progress(force_msg=f"跳至 {start_time}s: {frame_count}/{start_frame}")
             continue
         if end_frame is not None and frame_count >= end_frame:
             break
@@ -175,13 +191,7 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
                     skipped += 1
 
         frame_count += 1
-
-        # 进度上报（按 1% 粒度节流）
-        if total_frames and frame_count % max(1, total_frames // 100) == 0:
-            pct = int(frame_count / total_frames * 100)
-            if pct != last_pct:
-                last_pct = pct
-                report("extract", frame_count / total_frames, f"抽帧 {frame_count}/{total_frames}")
+        tick_progress()
 
     print(f"保存 {saved} 张，去重跳过 {skipped} 张（阈值 {dedup_threshold}）")
     summary = cluster_writer.summary()

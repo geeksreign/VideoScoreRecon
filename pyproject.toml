@@ -9,6 +9,7 @@ dependencies = [
     "imagehash>=4.3.2",
     "imageio>=2.37.4",
     "imageio-ffmpeg>=0.6.0",
+    "opencv-python>=5.0.0.93",
     "pillow>=12.3.0",
     "requests>=2.32.0",
     "uvicorn>=0.30.0",
@@ -16,5 +17,5 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "opencv-python>=5.0.0.93",
+    "pytest>=8.0.0",
 ]

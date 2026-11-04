@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from jobs import JobStore
 
@@ -33,12 +33,20 @@ store = JobStore(DATA_DIR)
 
 
 class ExtractRequest(BaseModel):
-    url: str
-    start_time: float | None = None
-    end_time: float | None = None
-    interval_sec: float = 2
-    dedup_threshold: float = 0.01
+    url: str = Field(min_length=1)
+    start_time: float | None = Field(default=None, ge=0)
+    end_time: float | None = Field(default=None, ge=0)
+    interval_sec: float = Field(default=2, gt=0)
+    dedup_threshold: float = Field(default=0.01, ge=0, le=1)
     cookie: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _url_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("url 不能为空")
+        return v
 
 
 def _require_token(x_auth_token: str | None = Header(default=None)):
