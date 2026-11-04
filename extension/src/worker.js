@@ -21,8 +21,10 @@ importScripts(
 // cv 是 Emscripten thenable：其 .then 返回值不可链，Promise.resolve/race 的
 // assimilation 会引发微任务风暴。安全模式 = 单次 .then 进入，后续走原生链。
 function whenCvReady(cb, onErr) {
-  if (window.cv && typeof window.cv.then === 'function') window.cv.then(cb, onErr);
-  else cb(window.cv);
+  // worker 环境无 window，用 globalThis（opencv.js UMD 的 worker 分支挂到 self）
+  const g = globalThis;
+  if (g.cv && typeof g.cv.then === 'function') g.cv.then(cb, onErr);
+  else cb(g.cv);
 }
 
 let cancelRequested = false;
@@ -44,10 +46,12 @@ async function run(buffer, params) {
   progress('extract', 0, '解析视频流');
   let meta = null;
   let pastEnd = false;
+  let dbgSent = false;
 
   const dedup = new VSR.ImageDedup(dedupThreshold);
   const stitcher = new VSR.Stitcher();
   let saved = 0, skipped = 0;
+  const frameNos = [];           // 保留帧的帧号（对齐 Python crops/score_XXXXXX 命名）
   let startFrame = 0, endFrame = null, sampleStep = 1, totalFrames = null;
   let lastPct = -1;
 
@@ -104,15 +108,30 @@ async function run(buffer, params) {
 
     onSample: async (frame, i) => {
       if (cancelRequested) { frame.close(); return; }
+      const disp = [frame.displayWidth, frame.displayHeight];
+      const coded = [frame.codedWidth, frame.codedHeight];
       const bmp = await createImageBitmap(frame);
       frame.close();
-      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
-        canvas.width = bmp.width;
-        canvas.height = bmp.height;
+      // 栅格化尺寸对齐 track meta（Python imageio 输出口径）：本视频 SPS 显示
+      // 853 而 tkhd 为 852，两解码栈差 1px——以 meta 为准，源裁剪不重采样。
+      const gw = (meta && meta.width) ? meta.width : bmp.width;
+      const gh = (meta && meta.height) ? meta.height : bmp.height;
+      if (canvas.width !== gw || canvas.height !== gh) {
+        canvas.width = gw;
+        canvas.height = gh;
       }
-      ctx.drawImage(bmp, 0, 0);
+      const sw = Math.min(bmp.width, gw), sh = Math.min(bmp.height, gh);
+      ctx.drawImage(bmp, 0, 0, sw, sh, 0, 0, gw, gh);
       bmp.close();
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (!dbgSent) {
+        dbgSent = true;
+        post({
+          type: 'debug', phase: 'frame0',
+          bmp: [img.width, img.height], disp, coded,
+          meta: meta ? [meta.width, meta.height] : null,
+        });
+      }
 
       // RGBA → BGR（流水线全部按 Python 的 BGR 语义）
       const bgr = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC3);
@@ -133,6 +152,7 @@ async function run(buffer, params) {
         if (isNew) {
           await stitcher.add(crop, i);   // stitcher 内部 delete
           saved++;
+          frameNos.push(i);
         } else {
           crop.delete();
           skipped++;
@@ -169,7 +189,7 @@ async function run(buffer, params) {
       fps: meta.fps, width: meta.width, height: meta.height,
       durationSec: meta.durationSec,
     } : null,
-    saved, skipped, decoded: result ? result.decoded : 0,
+    saved, skipped, frameNos, decoded: result ? result.decoded : 0,
   }, segments.map((s) => s.buffer));
 }
 

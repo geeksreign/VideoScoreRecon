@@ -6,6 +6,49 @@ self.VSR = self.VSR || {};
 
 (function () {
   /**
+   * 从 mp4box trak 提取 AVCDecoderConfigurationRecord（VideoDecoderConfig.description）。
+   * 优先用 avcC.data 原始字节；否则按 ISO 14496-15 用解析字段手工重组。
+   */
+  function avcDescription(trak) {
+    try {
+      const entries = (trak && trak.mdia && trak.mdia.minf && trak.mdia.minf.stbl
+        && trak.mdia.minf.stbl.stsd && trak.mdia.minf.stbl.stsd.entries) || [];
+      const entry = entries.find((e) => e && (e.type === 'avc1' || e.type === 'avc3'))
+        || entries[0];
+      if (!entry) return null;
+      const avcC = entry.avcC;
+      if (!avcC) return null;
+      const toU8 = (d) => d instanceof Uint8Array ? d
+        : d instanceof ArrayBuffer ? new Uint8Array(d) : null;
+      const raw = toU8(avcC.data);
+      if (raw && raw.length) return raw;
+      // mp4box 解析形态：SPS/PPS = [{length, nalu: Uint8Array}]，字段名 AVCProfileIndication
+      const sps = (avcC.SPS || []).map((s) => toU8(s && s.nalu) || toU8(s)).filter(Boolean);
+      const pps = (avcC.PPS || []).map((p) => toU8(p && p.nalu) || toU8(p)).filter(Boolean);
+      if (!sps.length) return null;
+      const lsm1 = (avcC.lengthSizeMinusOne === undefined ? 3 : avcC.lengthSizeMinusOne) & 3;
+      const parts = [new Uint8Array([
+        1,
+        avcC.AVCProfileIndication !== undefined ? avcC.AVCProfileIndication : avcC.avcProfileIndication,
+        avcC.profile_compatibility,
+        avcC.AVCLevelIndication !== undefined ? avcC.AVCLevelIndication : avcC.avcLevelIndication,
+        0xfc | lsm1,                             // 6bit reserved + lengthSizeMinusOne
+        0xe0 | Math.min(31, sps.length),         // 3bit reserved + SPS count
+      ])];
+      const u16 = (n) => new Uint8Array([(n >> 8) & 0xff, n & 0xff]);
+      for (const s of sps) { parts.push(u16(s.length), s); }
+      parts.push(new Uint8Array([Math.min(255, pps.length)]));
+      for (const p of pps) { parts.push(u16(p.length), p); }
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      const out = new Uint8Array(total);
+      let o = 0;
+      for (const p of parts) { out.set(p, o); o += p.length; }
+      return out;
+    } catch (e) { /* 尝试性提取，失败返回 null */ }
+    return null;
+  }
+
+  /**
    * 解析 mp4/碎片 mp4 的视频轨元信息（不解码）
    * @param {ArrayBuffer} buf
    * @returns {Promise<{fps:number, width:number, height:number, nbSamples:number, durationSec:number}>}
@@ -32,6 +75,7 @@ self.VSR = self.VSR || {};
           nbSamples: vt.nb_samples,
           durationSec: durSec,
           timescale: vt.timescale,
+          codec: vt.codec || (vt.video && vt.video.codec) || null,
         });
       };
       try {
@@ -93,6 +137,8 @@ self.VSR = self.VSR || {};
           nbSamples: vt.nb_samples,
           durationSec: durSec,
           timescale: vt.timescale,
+          codec: vt.codec || (vt.video && vt.video.codec) || null,
+          description: avcDescription(file.getTrackById(vt.id)),
         };
         file.__meta = meta;
       };
@@ -138,6 +184,14 @@ self.VSR = self.VSR || {};
         wakeAll();
       },
       error: (e) => { decodeErr = e; wakeAll(); },
+    });
+    if (!meta.codec) throw new Error('mp4box: 无法获取视频 codec 字符串');
+    decoder.configure({
+      codec: meta.codec,
+      // AVC 格式 H.264 必须带 avcC description（AVCDecoderConfigurationRecord）
+      description: meta.description || undefined,
+      codedWidth: meta.width || undefined,
+      codedHeight: meta.height || undefined,
     });
 
     const waitNotFull = async () => {

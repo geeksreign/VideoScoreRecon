@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VSR decode e2e</title>
+<script src="/extension/lib/mp4box.all.min.js"></script></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>
+(function () {
+  const EXPECT = {
+    saved: 30,
+    frameNos: [0, 124, 248, 310, 434, 620, 744, 806, 930, 992, 1054, 1178, 1240,
+      1364, 1550, 1674, 1736, 1860, 1922, 2046, 2108, 2232, 2294, 2480, 2604,
+      2728, 2790, 2852, 2976, 3038],
+    res: [852, 3213],   // [w, h]
+    fps: 25,
+  };
+  const outEl = document.getElementById('out');
+  const log = [];
+  function finish(obj) {
+    outEl.textContent = JSON.stringify(obj, null, 1);
+    outEl.dataset.done = '1';
+  }
+  function progress(stage, p, m) {
+    log.push(`${stage} ${(p * 100).toFixed(0)}% ${m}`);
+    console.log('progress', stage, p, m);
+  }
+
+  async function main() {
+    const url = '/data/Gary%20Moore%20Style%20in%20A/video/Gary%20Moore%20Style%20in%20A.mp4';
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('fetch video HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    console.log('video fetched', buf.byteLength);
+
+    // ---- 探测 mp4box avcC 结构（定位 description 取不到的原因）----
+    const probeInfo = await new Promise((res) => {
+      const f = MP4Box.createFile();
+      f.onReady = (info) => {
+        const vt = info.videoTracks[0];
+        const trak = f.getTrackById(vt.id);
+        const stsd = trak.mdia.minf.stbl.stsd;
+        const entries = stsd.entries || [];
+        const entry = entries[0];
+        const avcC = entry && entry.avcC;
+        res({
+          codec: vt.codec, entryType: entry && entry.type,
+          avcCType: avcC && (avcC.type || 'unknown'),
+          avcCKeys: avcC ? Object.keys(avcC).slice(0, 30) : null,
+          hasData: !!(avcC && avcC.data),
+          dataType: avcC && avcC.data && avcC.data.constructor &&
+            avcC.data.constructor.name,
+          dataLen: avcC && avcC.data && avcC.data.byteLength,
+          hasSPS: !!(avcC && avcC.SPS), spsN: avcC && avcC.SPS && avcC.SPS.length,
+          sps0type: avcC && avcC.SPS && avcC.SPS[0] &&
+            avcC.SPS[0].constructor.name,
+          profile: avcC && avcC.AVCProfileIndication,
+          sps0keys: avcC && avcC.SPS && avcC.SPS[0] && Object.keys(avcC.SPS[0]),
+          sps0sample: avcC && avcC.SPS && avcC.SPS[0] && JSON.stringify(
+            avcC.SPS[0], (k, v) => v instanceof Uint8Array
+              ? 'U8(' + v.length + ')' : (v && v.constructor === Object && k === 'bytes' ? undefined : v)
+          ).slice(0, 500),
+          pps0keys: avcC && avcC.PPS && avcC.PPS[0] && Object.keys(avcC.PPS[0]),
+        });
+      };
+      f.onError = (e) => res({ err: String(e) });
+      const ab = buf.slice(0);
+      ab.fileStart = 0;
+      f.appendBuffer(ab);
+      f.flush && f.flush();
+    });
+    console.log('avcC probe: ' + JSON.stringify(probeInfo));
+
+    // HTMLVideoElement 双证（Chrome 常规解码路径的显示尺寸）
+    const vidInfo = await new Promise((res) => {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => { res([v.videoWidth, v.videoHeight]); URL.revokeObjectURL(v.src); };
+      v.onerror = (e) => res(['err', String(e)]);
+      v.src = URL.createObjectURL(new Blob([buf], { type: 'video/mp4' }));
+    });
+    console.log('video element size: ' + JSON.stringify(vidInfo));
+
+    const worker = new Worker('/extension/src/worker.js');
+    const done = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker timeout 120s')), 120000);
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'progress') progress(m.stage, m.progress, m.message);
+        else if (m.type === 'debug') { log.push('debug ' + JSON.stringify(m)); console.log('debug', JSON.stringify(m)); }
+        else if (m.type === 'done') { clearTimeout(timer); resolve(m); }
+        else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
+      };
+      worker.onerror = (e) => { clearTimeout(timer); reject(new Error('worker: ' + e.message)); };
+    });
+    worker.postMessage({ cmd: 'run', buffer: buf, params: { intervalSec: 2.5 } }, [buf]);
+    const d = await done;
+
+    // ---- 对比 ----
+    const diff = [];
+    const push = (k, got, exp) => { if (JSON.stringify(got) !== JSON.stringify(exp)) diff.push({ k, got, exp }); };
+    push('saved', d.saved, EXPECT.saved);
+    push('frameNos', d.frameNos, EXPECT.frameNos);
+    const seg0 = d.segments && d.segments[0];
+    push('seg_count', d.segments.length, 1);
+    if (seg0) push('seg_size', [seg0.width, seg0.height], EXPECT.res);
+    if (d.meta) push('fps', Math.round(d.meta.fps), EXPECT.fps);
+    push('decoded', d.decoded, d.decoded);   // 仅展示
+    return {
+      pass: diff.length === 0,
+      diff,
+      got: {
+        saved: d.saved, skipped: d.skipped, decoded: d.decoded,
+        frameNos: d.frameNos,
+        seg: d.segments.map(s => [s.width, s.height]),
+        meta: d.meta,
+      },
+      log: log.slice(-8),
+    };
+  }
+
+  main().then(finish, (e) => finish({
+    pass: false, error: String(e && e.stack || e), log: log.slice(-8),
+  }));
+})();
+</script>
+</body>
+</html>
