@@ -30,6 +30,29 @@ def _looks_like_score(gray, x, y, cw, ch, min_dark=0.002, max_dark=0.15):
     return min_dark <= ratio <= max_dark
 
 
+def _trim_trailing_dark(gray, rect, min_white=0.3):
+    """
+    修剪 rect 尾部的连续非白行
+
+    白色乐谱块经闭运算后，轮廓可能因黑区中的稀疏亮斑被桥接而向下探入
+    非乐谱的暗区（实测混入 6~28px 黑带）。从底向上修剪白占比 < min_white
+    的连续行，直到遇到白行为止；只动尾部，不侵入谱面内容。
+
+    Args:
+        gray: 灰度图
+        rect: (x1, y1, x2, y2)
+        min_white: 行内近白像素占比下限（黑带行实测 ≤4%，乐谱纸行 ≥90%）
+
+    Returns:
+        修剪后的 rect；修剪后高度为 0 时返回 None
+    """
+    x1, y1, x2, y2 = rect
+    white = (gray[y1:y2, x1:x2] > 200).mean(axis=1)
+    while y2 - 1 >= y1 and white[y2 - 1 - y1] < min_white:
+        y2 -= 1
+    return (x1, y1, x2, y2) if y2 > y1 else None
+
+
 def find_score_rect(img, thresh=200, min_w_ratio=0.5, min_h_ratio=0.08,
                     top_ratio=0.18, bottom_ratio=0.35, pad=6,
                     min_band_ratio=0.125):  # 调小了 top_ratio
@@ -56,8 +79,11 @@ def find_score_rect(img, thresh=200, min_w_ratio=0.5, min_h_ratio=0.08,
     # 按面积降序逐个做内容校验：几何像乐谱不代表内容是乐谱
     for x, y, cw, ch in sorted(candidates, key=lambda b: b[2] * b[3], reverse=True):
         if _looks_like_score(gray, x, y, cw, ch):
-            return (max(0, x - pad), max(0, y - pad),
-                    min(w, x + cw + pad), min(h, y + ch + pad))
+            rect = _trim_trailing_dark(gray, (
+                max(0, x - pad), max(0, y - pad),
+                min(w, x + cw + pad), min(h, y + ch + pad)))
+            if rect is not None:
+                return rect
 
     # 无合格四边形候选（或全部被内容校验拒绝）：
     # 回退到白纸区域检测定位曲谱区域
@@ -76,7 +102,8 @@ def find_score_rect(img, thresh=200, min_w_ratio=0.5, min_h_ratio=0.08,
                 y1 = max(0, paper_top)
                 x2 = min(w, int(xs.max()) + pad + 1)
                 y2 = min(h, paper_bottom + 1)
-                return x1, y1, x2, y2
+                # paper_bottom 行本身 ≥90% 白，通常无事发生；统一走尾部修剪防边界情况
+                return _trim_trailing_dark(gray, (x1, y1, x2, y2))
     return None
 
 

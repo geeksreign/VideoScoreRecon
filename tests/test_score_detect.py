@@ -1,9 +1,9 @@
-"""find_score_rect：四边形内容校验（拒绝非乐谱白色区域误检）+ 回退白带"""
+"""find_score_rect：四边形内容校验（拒绝非乐谱白色区域误检）+ 回退白带 + 尾部暗行修剪"""
 
 import cv2
 import numpy as np
 
-from score_detect import _looks_like_score, find_score_rect
+from score_detect import _looks_like_score, _trim_trailing_dark, find_score_rect
 
 W, H = 852, 480
 BG = 60        # 暗背景
@@ -129,3 +129,36 @@ def test_normal_height_band_passes():
     rect = find_score_rect(img)
     assert rect is not None, "正常高度白带不应被拒"
     assert rect[1] >= 300, f"应选中底部区域，实际 rect={rect}"
+
+
+def test_trim_trailing_dark():
+    """尾部暗行修剪：连续非白行被剪掉，遇白行停止；全暗返回 None"""
+    gray = np.full((120, 400), 60, dtype=np.uint8)
+    gray[0:100] = 230                       # 0..99 白，100..119 暗
+    assert _trim_trailing_dark(gray, (0, 0, 400, 120)) == (0, 0, 400, 100)
+    # 中间有白行：只剪尾部连续暗行，白行处停
+    gray[110] = 230
+    assert _trim_trailing_dark(gray, (0, 0, 400, 120)) == (0, 0, 400, 111)
+    # 无暗尾行：不变
+    assert _trim_trailing_dark(gray, (0, 0, 400, 100)) == (0, 0, 400, 100)
+    # 全暗 → None
+    gray[110] = 60
+    assert _trim_trailing_dark(gray, (0, 100, 400, 120)) is None
+
+
+def test_quad_trailing_dark_band_trimmed():
+    """回归：quad 轮廓探入暗区（白块下有可桥接亮斑）→ 尾部黑带被修剪"""
+    img = _canvas()
+    _draw_white_block(img, 28, 0, 824, 314)
+    # 白块下方暗区中的稀疏亮斑（模拟黑区 UI 亮斑，闭运算后与白块桥接）
+    img[318:328, 40:120] = WHITE
+    # 白块内少量谱线，保证内容校验按乐谱处理
+    for y in range(40, 300, 50):
+        img[y:y + 2, 30:820] = BLACK
+
+    rect = find_score_rect(img)
+    assert rect is not None
+    x1, y1, x2, y2 = rect
+    assert y1 <= 6, f"顶部应在画面上缘，实际 {rect}"
+    # 关键：底部不得包含亮斑/暗区行（y>=314 为暗区）
+    assert y2 <= 316, f"尾部暗区应被修剪，实际 rect={rect}"
