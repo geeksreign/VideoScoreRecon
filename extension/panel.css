@@ -87,15 +87,20 @@
 #se-start-btn { background: #fb7299; color: #fff; }
 #se-close-btn { background: #f1f2f3; color: #61666d; }
 
-#score-ext-panel #se-result { display: none; margin-top: 8px; }
+#score-ext-panel #se-result {
+  display: none;
+  margin-top: 8px;
+  max-height: 360px;   /* 长图在容器内滚动查看 */
+  overflow-y: auto;
+}
 #score-ext-panel #se-result.se-visible { display: block; }
 #score-ext-panel #se-result img {
   max-width: 100%;
   border: 1px solid #e3e5e7;
   border-radius: 6px;
-  max-height: 300px;
+  display: block;
 }
-#score-ext-panel #se-download {
+#score-ext-panel #se-downloads a {
   display: block;
   text-align: center;
   margin-top: 6px;

@@ -1,12 +1,16 @@
 // 内容脚本：在 B 站视频页注入“提取乐谱”按钮与面板
+//
+// 双模式（options 页 baseUrl 决定）：
+//   - baseUrl 留空（默认）= 纯浏览器本地：acquire 双通道取流 → 扩展 Worker 全流水线
+//   - baseUrl 非空 = 高级：交给本地 Python 服务（老流程）
 (() => {
-  const DEFAULT_BASE = 'http://127.0.0.1:8000';
+  const DEFAULT_BASE = '';   // '' = 本地模式
 
   function getCfg() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['baseUrl', 'token', 'cookie'], (cfg) => {
         resolve({
-          baseUrl: cfg.baseUrl || DEFAULT_BASE,
+          baseUrl: (cfg.baseUrl || DEFAULT_BASE).trim(),
           token: cfg.token || '',
           cookie: cfg.cookie || '',
         });
@@ -41,7 +45,12 @@
   }
 
   let polling = false;
-  let resultUrl = null;   // 上一次结果的 Blob URL，用于及时释放
+  const resultUrls = [];   // 本次展示占用的 Blob URL，下次运行前统一释放
+
+  function releaseResultUrls() {
+    for (const u of resultUrls) URL.revokeObjectURL(u);
+    resultUrls.length = 0;
+  }
 
   function buildUI() {
     if (document.getElementById('score-ext-btn')) return;
@@ -69,8 +78,8 @@
         <input id="se-end" type="text" placeholder="例如 60 或 1:00">
       </div>
       <div class="se-row">
-        <label>抽帧间隔（秒，默认 2）</label>
-        <input id="se-interval" type="text" value="2">
+        <label>抽帧间隔（秒，默认 2.5）</label>
+        <input id="se-interval" type="text" value="2.5">
       </div>
       <div class="se-row">
         <label>去重阈值（差异占比，默认 0.01）</label>
@@ -90,16 +99,14 @@
       </div>
       <div id="se-result">
         <img id="se-result-img" alt="提取结果">
-        <a id="se-download" href="#" download="score.jpg">下载拼接图</a>
+        <div id="se-downloads"></div>
       </div>
     `;
     document.body.appendChild(panel);
 
     panel.querySelector('#se-start-btn').addEventListener('click', startExtract);
     panel.querySelector('#se-close-btn').addEventListener('click', togglePanel);
-    // 预填 cookie（来自设置）
     getCfg().then((cfg) => { panel.querySelector('#se-cookie').value = cfg.cookie || ''; });
-    // 打开时探测服务状态
     checkHealth();
   }
 
@@ -129,9 +136,14 @@
   }
 
   async function checkHealth() {
+    const cfg = await getCfg();
+    if (!cfg.baseUrl) {
+      setStatus('✅ 本地引擎模式（全部处理在本机浏览器完成）');
+      return;
+    }
     const r = await api('/api/health').catch(() => ({ ok: false }));
     if (r.ok) {
-      setStatus('✅ 本地服务已连接');
+      setStatus('✅ 本地服务已连接（高级 HTTP 模式）');
     } else {
       setStatus('⚠️ 本地服务未连接。请先在终端启动：\ncd src && uv run python -m server\n并在设置页填写 Token。');
     }
@@ -139,16 +151,24 @@
 
   async function startExtract() {
     if (polling) return;
+    const cfg = await getCfg();
+    document.getElementById('se-result').classList.remove('se-visible');
+    releaseResultUrls();
+    document.getElementById('se-downloads').innerHTML = '';
+    if (!cfg.baseUrl) {
+      await localExtract();
+      return;
+    }
+    // ---- 高级 HTTP 模式（老流程）----
     const p = document.getElementById('score-ext-panel');
     const payload = {
       url: location.href,
       start_time: parseTime(p.querySelector('#se-start').value),
       end_time: parseTime(p.querySelector('#se-end').value),
-      interval_sec: num(p.querySelector('#se-interval').value, 2),
+      interval_sec: num(p.querySelector('#se-interval').value, 2.5),
       dedup_threshold: num(p.querySelector('#se-thresh').value, 0.01),
       cookie: p.querySelector('#se-cookie').value.trim() || undefined,
     };
-    document.getElementById('se-result').classList.remove('se-visible');
     setStatus('提交任务...');
     const r = await api('/api/extract', { method: 'POST', body: JSON.stringify(payload) });
     if (!r.ok) {
@@ -159,6 +179,79 @@
     poll(r.data.job_id);
   }
 
+  // ---------- 本地模式 ----------
+  async function localExtract() {
+    polling = true;
+    const p = document.getElementById('score-ext-panel');
+    const params = {
+      startTime: parseTime(p.querySelector('#se-start').value),
+      endTime: parseTime(p.querySelector('#se-end').value),
+      intervalSec: num(p.querySelector('#se-interval').value, 2.5),
+      dedupThreshold: num(p.querySelector('#se-thresh').value, 0.01),
+    };
+    try {
+      setStatus('获取视频流...');
+      const acq = await window.VSRAcquire.acquire(location.href, (stage, prog, msg) =>
+        setProgress(stage, prog, msg));
+      setProgress('download', 1, `视频就绪（${acq.channel}: ${acq.label}）`);
+
+      const worker = new Worker(chrome.runtime.getURL('src/worker.js'));
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('处理超时(10分钟)')), 600000);
+        worker.onmessage = (e) => {
+          const m = e.data;
+          if (m.type === 'progress') setProgress(m.stage, m.progress, m.message);
+          else if (m.type === 'done') { clearTimeout(timer); resolve(m); }
+          else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
+        };
+        worker.onerror = (e) => {
+          clearTimeout(timer);
+          reject(new Error(`worker: ${e.message || e}`));
+        };
+        worker.postMessage(
+          { cmd: 'run', buffer: acq.buffer, params },
+          [acq.buffer]);
+      });
+      worker.terminate();
+      showLocalResult(result, params);
+    } catch (e) {
+      setProgress('error', 0, '');
+      setStatus(`❌ 失败: ${e && e.message || e}`);
+    } finally {
+      polling = false;
+    }
+  }
+
+  function showLocalResult(result, params) {
+    const segs = result.segments || [];
+    if (!segs.length) {
+      setStatus('❌ 未检测到任何乐谱区域');
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '');
+    const dl = document.getElementById('se-downloads');
+    dl.innerHTML = '';
+    segs.forEach((s, idx) => {
+      const blob = new Blob([s.buffer], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      resultUrls.push(url);
+      if (idx === 0) {
+        document.getElementById('se-result-img').src = url;
+      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `score_${stamp}${segs.length > 1 ? `_p${idx + 1}` : ''}.png`;
+      a.textContent = segs.length > 1
+        ? `下载分段 ${idx + 1}/${segs.length}（${s.height}px，帧 ${s.from}-${s.to}）`
+        : `下载拼接图（${s.width}x${s.height}）`;
+      dl.appendChild(a);
+    });
+    document.getElementById('se-result').classList.add('se-visible');
+    setStatus(`✅ 完成：保留 ${result.saved} 张，去重 ${result.skipped} 张`
+      + (segs.length > 1 ? `，分 ${segs.length} 段输出` : ''));
+  }
+
+  // ---------- 高级 HTTP 模式 ----------
   async function poll(jobId) {
     polling = true;
     try {
@@ -196,14 +289,17 @@
       return;
     }
     const blob = await r.blob();
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
     const url = URL.createObjectURL(blob);
-    resultUrl = url;
+    resultUrls.push(url);
     const resultEl = document.getElementById('se-result');
     resultEl.querySelector('#se-result-img').src = url;
-    const a = resultEl.querySelector('#se-download');
+    const dl = document.getElementById('se-downloads');
+    dl.innerHTML = '';
+    const a = document.createElement('a');
     a.href = url;
     a.download = `score_${jobId}.png`;
+    a.textContent = '下载拼接图';
+    dl.appendChild(a);
     resultEl.classList.add('se-visible');
     setStatus('✅ 完成');
   }

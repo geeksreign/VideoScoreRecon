@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VSR page UI test</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>
+// ---- chrome.* stub（content script 在扩展环境的最小等价）----
+window.chrome = {
+  storage: {
+    local: {
+      _d: {},
+      get(keys, cb) { cb(Object.assign({}, this._d)); },
+      set(obj, cb) { Object.assign(this._d, obj); if (cb) cb(); },
+    },
+  },
+  runtime: {
+    // 测试页与 worker 同源（127.0.0.1 server），直接给同源绝对路径
+    getURL: (p) => '/extension/' + p,
+  },
+};
+</script>
+<script src="/extension/src/acquire.js"></script>
+<script>
+// mock acquire：本地 mp4 直取（真实通道①②在扩展环境/人工清单验收）
+window.VSRAcquire = {
+  acquire: async (pageUrl, report) => {
+    report('download', 0.05, 'mock: 拉取本地样本视频');
+    const r = await fetch('/data/Gary%20Moore%20Style%20in%20A/video/Gary%20Moore%20Style%20in%20A.mp4');
+    const buf = await r.arrayBuffer();
+    report('download', 0.9, 'mock: 视频就绪');
+    return { buffer: buf, channel: 'mock', label: 'local-sample' };
+  },
+};
+</script>
+<script src="/extension/content.js"></script>
+<script>
+(function () {
+  const out = document.getElementById('out');
+  const log = [];
+  function finish(obj) {
+    out.textContent = JSON.stringify(obj, null, 1);
+    out.dataset.done = '1';
+  }
+  function step(name, ok, detail) { log.push({ name, ok: !!ok, detail: detail || '' }); }
+
+  async function waitStatus(pred, timeoutMs) {
+    const t0 = Date.now();
+    for (;;) {
+      const s = (document.getElementById('se-status') || {}).textContent || '';
+      if (pred(s)) return s;
+      if (Date.now() - t0 > timeoutMs) throw new Error('waitStatus 超时: ' + s);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  async function main() {
+    // 1. UI 注入
+    const btn = document.getElementById('score-ext-btn');
+    step('ui_injected', btn, btn ? '' : '无按钮');
+    if (!btn) throw new Error('no button');
+
+    // 2. 面板打开 + 本地引擎状态
+    btn.click();
+    await waitStatus((s) => s.includes('本地引擎'), 8000);
+    step('panel_local_mode', true, '本地引擎状态文案');
+
+    // 3. 缩小参数跑真实 worker 链（mock acquire 提供视频）
+    document.getElementById('se-interval').value = '5';
+    document.getElementById('se-end').value = '15';
+    document.getElementById('se-start-btn').click();
+    const st = await waitStatus(
+      (s) => s.startsWith('✅ 完成') || s.startsWith('❌'), 240000);
+    step('extract_done', st.startsWith('✅'), st);
+    if (!st.startsWith('✅')) throw new Error(st);
+
+    // 4. 结果 DOM：预览 blob + 下载链接
+    const info = {
+      visible: document.getElementById('se-result').classList.contains('se-visible'),
+      imgSrc: (document.getElementById('se-result-img') || {}).src,
+      links: Array.from(document.querySelectorAll('#se-downloads a'))
+        .map((a) => ({ text: a.textContent, download: a.download })),
+      status: st,
+    };
+    step('result_visible', info.visible);
+    step('preview_blob', (info.imgSrc || '').startsWith('blob:'), info.imgSrc && info.imgSrc.slice(0, 5));
+    step('download_link', info.links.length > 0 && /\.png$/.test(info.links[0].download),
+      JSON.stringify(info.links));
+
+    const failed = log.filter((l) => !l.ok);
+    finish({ pass: failed.length === 0, total: log.length, failed: failed.length, log, info });
+  }
+
+  main().catch((e) => {
+    const st = (document.getElementById('se-status') || {}).textContent || '';
+    finish({ pass: false, error: String(e && e.message || e), status: st, log });
+  });
+})();
+</script>
+</body>
+</html>

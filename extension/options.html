@@ -6,28 +6,37 @@
   <style>
     body { font-family: -apple-system, "PingFang SC", sans-serif; max-width: 420px; margin: 40px auto; color: #18191c; }
     h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-top: 24px; }
     label { display: block; margin-top: 14px; font-size: 13px; color: #61666d; }
     input { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border: 1px solid #ccd0d6; border-radius: 6px; font-size: 13px; }
     button { margin-top: 18px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #fb7299; color: #fff; font-size: 14px; cursor: pointer; }
     #status { margin-top: 12px; font-size: 13px; color: #00aeec; white-space: pre-wrap; }
     .hint { font-size: 12px; color: #9499a0; margin-top: 16px; line-height: 1.7; }
+    code { background: #f1f2f3; padding: 1px 4px; border-radius: 3px; }
   </style>
 </head>
 <body>
   <h1>🎼 视频乐谱提取器设置</h1>
-  <label>本地服务地址</label>
-  <input id="baseUrl" placeholder="http://127.0.0.1:8000">
+
+  <div class="hint">
+    <b>推荐用法（默认，零配置）</b>：<br>
+    1. 打开任意 B 站视频页，点右下角「🎼 提取乐谱」<br>
+    2. 填写时间范围（可空），点「开始提取」<br>
+    3. 完成后预览、下载拼接长图——全部在本机浏览器完成，不上传任何数据
+  </div>
+
+  <h2>高级：本地 Python 服务（可选）</h2>
+  <label>服务地址（留空 = 使用内置本地引擎）</label>
+  <input id="baseUrl" placeholder="留空即可；如 http://127.0.0.1:8000">
   <label>服务 Token（启动服务时终端会打印）</label>
-  <input id="token" placeholder="启动 src 目录 `python -m server` 后查看">
-  <label>B 站 Cookie（SESSDATA，可空，提画质用）</label>
+  <input id="token" placeholder="仅 HTTP 模式需要：cd src && uv run python -m server">
+  <label>B 站 Cookie（SESSDATA，可空，仅 HTTP 模式提画质用）</label>
   <input id="cookie" placeholder="SESSDATA 值（可带或不带 SESSDATA= 前缀）">
   <button id="save">保存</button>
   <div id="status"></div>
   <div class="hint">
-    使用步骤：<br>
-    1. 在项目目录启动本地服务：<code>cd src && uv run python -m server</code><br>
-    2. 把终端打印的 Token 填到上方并保存<br>
-    3. 打开任意 B 站视频页，点右下角「🎼 提取乐谱」
+    本地 Python 服务模式说明：在项目目录执行 <code>cd src && uv run python -m server</code>，
+    把终端打印的 Token 填到上方。此模式由 Python/OpenCV 处理，适合开发者调试流水线。
   </div>
   <script src="options.js"></script>
 </body>

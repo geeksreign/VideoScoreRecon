@@ -1,21 +1,45 @@
 {
   "manifest_version": 3,
   "name": "视频乐谱提取器",
-  "version": "0.1.0",
-  "description": "从 B 站视频页面一键提取滚动曲谱并拼接为完整乐谱（需配合本地服务运行）",
+  "version": "1.0.0",
+  "description": "从 B 站视频页一键提取滚动乐谱并拼接为完整乐谱长图——全部处理在本机浏览器完成，不上传任何视频或 Cookie。",
   "permissions": ["storage"],
   "host_permissions": [
-    "http://127.0.0.1:8000/*",
-    "https://www.bilibili.com/*"
+    "https://www.bilibili.com/*",
+    "https://api.bilibili.com/*",
+    "https://*.bilivideo.com/*",
+    "https://*.akamaized.net/*",
+    "http://127.0.0.1:8000/*"
   ],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "视频乐谱提取器设置" },
-  "options_page": "options.html",
+  "action": {
+    "default_title": "视频乐谱提取器设置",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "content_scripts": [
     {
       "matches": ["https://www.bilibili.com/video/*"],
-      "js": ["content.js"],
+      "js": ["src/acquire.js", "content.js"],
       "css": ["panel.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/worker.js"],
+      "matches": ["https://*.bilibili.com/*"]
     }
   ]
 }

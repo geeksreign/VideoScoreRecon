@@ -1,4 +1,4 @@
-const DEFAULT_BASE = 'http://127.0.0.1:8000';
+const DEFAULT_BASE = '';   // 留空 = 内置本地引擎模式
 
 function $(id) { return document.getElementById(id); }
 
