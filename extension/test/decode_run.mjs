@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(REPO) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404); res.end('not found'); return;
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Connection': 'close' });
   fs.createReadStream(file).pipe(res);
 });
 
@@ -40,7 +40,7 @@ console.log(stamp(), '[server] repo root on :' + port);
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: 'new',
-  protocolTimeout: 60000,
+  protocolTimeout: 360000,
   args: ['--no-first-run', '--disable-gpu', '--disable-dev-shm-usage', '--no-sandbox'],
 });
 const page = await browser.newPage();
@@ -51,7 +51,7 @@ let exitCode = 1;
 try {
   await page.goto(`http://127.0.0.1:${port}/extension/test/decode.html`,
     { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#out[data-done="1"]', { timeout: 150000 });
+  await page.waitForSelector('#out[data-done="1"]', { timeout: 240000 });
   const result = JSON.parse(await page.$eval('#out', el => el.textContent));
   if (result.error) {
     console.error('RUNNER ERROR:', result.error);

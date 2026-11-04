@@ -13,6 +13,7 @@
 (function () {
   const results = [];
   const outEl = document.getElementById('out');
+  window.__runnerResults = results;   // 诊断：外部可读实时进度
   function record(name, pass, detail) {
     results.push({ name, pass: !!pass, detail: detail || '' });
     outEl.textContent = `running ${results.length}...`;
@@ -44,8 +45,13 @@
   function loadImage(url) {
     return new Promise((res, rej) => {
       const img = new Image();
-      img.onload = () => res(img);
-      img.onerror = () => rej(new Error('load fail ' + url));
+      // 防偶发 onload 永挂（keep-alive 连接池问题）→ 明确超时失败
+      const timer = setTimeout(() => {
+        img.src = '';
+        rej(new Error('image timeout: ' + url));
+      }, 25000);
+      img.onload = () => { clearTimeout(timer); res(img); };
+      img.onerror = () => { clearTimeout(timer); rej(new Error('load fail ' + url)); };
       img.src = url;
     });
   }
@@ -97,6 +103,7 @@
 
     // 1. findScoreRect
     for (const c of cases.rect_cases) {
+      console.log('SECTION rect_cases begin');
       const g = await loadGrayMat(c.png);
       const rect = VSR.findScoreRect(g);
       g.delete();
@@ -109,6 +116,7 @@
 
     // 2. cropScore + refineTopByProjection
     for (const c of cases.refine_cases) {
+      console.log('SECTION refine_cases begin');
       const bgr = await loadBGRMat(c.png);
       const rect = c.rect ? { x: c.rect[0], y: c.rect[1], w: c.rect[2] - c.rect[0], h: c.rect[3] - c.rect[1] } : null;
       const crop = VSR.cropScore(bgr, rect);
@@ -126,6 +134,7 @@
 
     // 3. extractScoreBinary
     for (const c of cases.binary_cases) {
+      console.log('SECTION binary_cases begin');
       const bgr = await loadBGRMat(c.png);
       const bw = VSR.extractScoreBinary(bgr);
       bgr.delete();
@@ -138,7 +147,10 @@
     // 4. phaseCorrelate（roll 后与 cv2 输出对齐）
     const PHASE_TOL = 0.5;
     for (const c of cases.phasecorr_cases) {
+      console.log('SECTION phasecorr_cases begin');
+      console.log('N1 load begin ' + c.png + ' roll=' + c.roll);
       const g = await loadGrayMat(c.png);
+      console.log('N2 load done ' + c.png);
       const w = g.cols, h = g.rows;
       const ref = new Float32Array(w * h);
       const mov = new Float32Array(w * h);
@@ -153,7 +165,9 @@
           mov[y * w + x] = base[yy * w + xx];
         }
       }
+      console.log('N3 phaseCorrelate begin w=' + w + ' h=' + h);
       const r = VSR.phaseCorrelate(ref, mov, w, h);
+      console.log('N4 phaseCorrelate done ' + JSON.stringify(r));
       const [edx, edy] = c.expected;
       const pass = Math.abs(r.dx - edx) <= PHASE_TOL && Math.abs(r.dy - edy) <= PHASE_TOL;
       record(`phase/roll(${sx},${sy})`, pass,
@@ -162,6 +176,7 @@
 
     // 5. scoresSame
     for (const c of cases.dedup_cases) {
+      console.log('SECTION dedup_cases begin');
       const a = await loadBGRMat(c.a);
       const b = await loadBGRMat(c.b);
       const ba = VSR.extractScoreBinary(a);
@@ -177,6 +192,7 @@
 
     // 6. ImageDedup 链
     for (const c of cases.chain_cases) {
+      console.log('SECTION chain_cases begin');
       const dedup = new VSR.ImageDedup(0.01);
       const got = [];
       for (const p of c.pngs) {

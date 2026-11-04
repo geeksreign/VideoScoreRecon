@@ -16,3 +16,4 @@ wheels/
 data/
 node_modules/
 .browsers/
+extension/dist/

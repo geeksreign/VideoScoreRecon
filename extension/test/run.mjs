@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(404); res.end('not found'); return;
   }
   const mime = MIME[path.extname(file)] || 'application/octet-stream';
-  res.writeHead(200, { 'Content-Type': mime });
+  res.writeHead(200, { 'Content-Type': mime, 'Connection': 'close' });
   fs.createReadStream(file).pipe(res);
 });
 
@@ -40,7 +40,7 @@ console.log(stamp(), '[server] 127.0.0.1:' + port);
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: 'new',
-  protocolTimeout: 60000,
+  protocolTimeout: 360000,
   args: ['--no-first-run', '--disable-gpu', '--disable-dev-shm-usage', '--no-sandbox'],
 });
 console.log(stamp(), '[browser] launched');
@@ -65,7 +65,7 @@ try {
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   console.log(stamp(), 'navigated:', resp && resp.status(), page.url());
 
-  await page.waitForSelector('#out[data-done="1"]', { timeout: 120000 });
+  await page.waitForSelector('#out[data-done="1"]', { timeout: 300000 });
   const text = await page.$eval('#out', el => el.textContent);
   const result = JSON.parse(text);
   if (result.error) {
@@ -77,15 +77,32 @@ try {
   }
 } catch (e) {
   console.error(stamp(), 'DRIVER FAIL:', e.message);
-  const info = await page.evaluate(() => ({
-    ready: document.readyState,
-    out: document.getElementById('out')
-      ? document.getElementById('out').textContent.slice(0, 400)
-      : null,
-    done: document.getElementById('out')
-      ? document.getElementById('out').dataset.done : null,
-  })).catch(err => ({ evalErr: String(err) }));
-  console.error('state:', JSON.stringify(info));
+  const info = await page.evaluate(async () => {
+    // 现场探针：定时器/fetch/进度/资源加载状态
+    const timers = await Promise.race([
+      new Promise(r => setTimeout(() => r('alive'), 1500)),
+      new Promise(r => setTimeout(() => r('?!'), 5000)),
+    ]);
+    let fetchProbe = 'pending';
+    try {
+      await Promise.race([
+        fetch('/test/fixtures/cases.json').then(r => { fetchProbe = 'ok ' + r.status; }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('t')), 3000)),
+      ]);
+    } catch (err) { fetchProbe = 'fail ' + err.message; }
+    const res = performance.getEntriesByType('resource').slice(-6)
+      .map(e => `${e.name.split('/').pop()}:${e.responseStatus || '?'}`);
+    return {
+      timers,
+      fetchProbe,
+      results: (window.__runnerResults || []).length,
+      last: (window.__runnerResults || []).slice(-3).map(r => r.name),
+      out: document.getElementById('out').textContent.slice(0, 120),
+      ready: document.readyState,
+      res,
+    };
+  }).catch(err => ({ evalErr: String(err) }));
+  console.error('probe:', JSON.stringify(info, null, 1));
 } finally {
   await browser.close().catch(() => {});
   server.close();
