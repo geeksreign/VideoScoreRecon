@@ -1,10 +1,11 @@
 # AGENTS.md
 
-Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical score regions from video. Git repo has no commits yet; no tests, lint, CI, or formatter config exists.
+Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical score regions from video. Has an initial commit pushed to GitHub; `pytest` tests exist under `tests/`, but no lint, CI, or formatter config.
 
 ## Commands
-- `uv sync` — install deps. Required before running anything: `opencv-python` is in the `dev` dependency group, not runtime deps.
-- `python src/main.py --video <路径或B站URL> [--data-dir data] ...` — CLI pipeline (URL download → extract → crop → dedup → stitch). Both `src/main.py` and `src/pipeline.py` insert `src/videocore` and `src/video_scrap/bili` into `sys.path`, so they run from any CWD.
+- `uv sync` — install deps. Required before running anything (runtime deps include `opencv-python`).
+- `uv run pytest` — run the test suite (`tests/`, configured via `[tool.pytest.ini_options]` in `pyproject.toml`).
+- `python src/main.py --video <路径或B站URL> [--data-dir data] ...` — CLI pipeline (URL download → extract → crop → dedup → stitch). `--video` is required. Both `src/main.py` and `src/pipeline.py` insert `src/videocore` and `src/video_scrap/bili` into `sys.path`, so they run from any CWD.
 - `cd src && python -m server` — starts the local FastAPI service (http://127.0.0.1:8000) for the browser extension. Prints a per-run `Token` on startup; all `/api/*` except `/api/health` require `X-Auth-Token`. Env: `SCORE_SERVER_TOKEN` to pin the token, `SCORE_DATA_DIR` for the data root.
 - Browser extension lives in `extension/` (MV3). Load unpacked via `chrome://extensions` (developer mode). Point it at the local service + paste the token in its options page; `content.js` runs on `https://www.bilibili.com/video/*`.
 
@@ -21,3 +22,4 @@ Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical s
 - imageio FFMPEG returns RGB frames; OpenCV needs BGR — `video_io.py` converts with `cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)`.
 - Code comments are in Chinese.
 - `test_pic_exp.py` is an image-only crop test (uses `data/pic_exp/`, outputs to `data/pic_exp_out/`), independent of the video pipeline.
+- `tests/` holds pytest tests (auto-discovered); `test/` holds manual utility scripts (`comp_similar_pics.py` reuses `videocore/dedup.py` core, so both share one dedup implementation).

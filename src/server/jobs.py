@@ -11,13 +11,14 @@ from collections import deque
 
 
 class JobStore:
-    def __init__(self, data_dir, max_size=100):
+    def __init__(self, data_dir, max_size=100, start_worker=True):
         self.data_dir = data_dir
         self._max_size = max_size
         self._jobs = {}
         self._queue = deque()
         self._lock = threading.Lock()
-        threading.Thread(target=self._run, daemon=True).start()
+        if start_worker:
+            threading.Thread(target=self._run, daemon=True).start()
 
     def create(self, params):
         """入队一个新任务，返回 job_id"""

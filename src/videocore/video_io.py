@@ -22,10 +22,10 @@ def stitch_scores(out_dir, output_path=None):
     """
     out_dir = Path(out_dir)
     # 仅匹配抽帧裁剪图 score_<帧号>.jpg，避免把拼接输出本身拼进去
-    # （帧号位数不固定：≥100 万帧会产生 7 位）
+    # （帧号位数不固定：≥100 万帧会产生 7 位；按数字大小而非字典序排序）
     files = sorted(
-        f for f in out_dir.iterdir()
-        if re.fullmatch(r'score_\d+\.jpg', f.name)
+        (f for f in out_dir.iterdir() if re.fullmatch(r'score_\d+\.jpg', f.name)),
+        key=lambda f: int(re.search(r'\d+', f.stem).group()),
     )
     imgs = [cv2.imread(str(f)) for f in files]
     imgs = [i for i in imgs if i is not None]
