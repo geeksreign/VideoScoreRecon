@@ -75,4 +75,5 @@ def result(job_id: str):
     path = job["result"].get("result_path")
     if not path or not Path(path).exists():
         raise HTTPException(status_code=404, detail="结果文件不存在")
-    return FileResponse(path, media_type="image/jpeg")
+    media_type = "image/png" if path.endswith(".png") else "image/jpeg"
+    return FileResponse(path, media_type=media_type)

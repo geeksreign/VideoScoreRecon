@@ -20,11 +20,29 @@ DEFAULT_HEADERS = {
 }
 
 
+def _normalize_cookie(cookie):
+    """
+    归一化 Cookie 输入：既接受裸 SESSDATA 值，也接受完整键值对
+
+    - "xxx"            -> "SESSDATA=xxx"
+    - "SESSDATA=xxx"   -> 原样
+    - "SESSDATA=xxx; other=1" -> 原样（已是完整 Cookie 串）
+    """
+    cookie = cookie.strip()
+    if not cookie:
+        return None
+    # 已含 key=value 形式（如 SESSDATA=... 或完整 Cookie 串）则原样使用
+    if "=" in cookie:
+        return cookie
+    return f"SESSDATA={cookie}"
+
+
 def _headers(cookie=None):
     """构造请求头；提供 SESSDATA 时附带登录 Cookie 以解锁更高画质"""
     headers = dict(DEFAULT_HEADERS)
-    if cookie:
-        headers["Cookie"] = f"SESSDATA={cookie}"
+    normalized = _normalize_cookie(cookie) if cookie else None
+    if normalized:
+        headers["Cookie"] = normalized
     return headers
 
 

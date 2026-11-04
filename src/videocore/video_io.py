@@ -15,10 +15,10 @@ def stitch_scores(out_dir, output_path=None):
 
     Args:
         out_dir: 保存 score_*.jpg 的目录
-        output_path: 拼接输出路径（默认 <out_dir>/score_stitched.jpg）
+        output_path: 拼接输出路径（默认 <out_dir>/score_stitched.png）
 
     Returns:
-        输出路径；若无图可拼则返回 None
+        输出路径；若无图可拼或写盘失败则返回 None
     """
     out_dir = Path(out_dir)
     # 仅匹配抽帧裁剪图 score_<帧号>.jpg，避免把拼接输出本身拼进去
@@ -35,11 +35,13 @@ def stitch_scores(out_dir, output_path=None):
     resized = [i if i.shape[1] == w else cv2.resize(i, (w, i.shape[0])) for i in imgs]
     stitched = np.vstack(resized)
 
-    output_path = Path(output_path) if output_path else out_dir / "score_stitched.jpg"
+    output_path = Path(output_path) if output_path else out_dir / "score_stitched.png"
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # JPEG 有 65535px 高度上限，长视频拼接图必须用 PNG
     ok = cv2.imwrite(str(output_path), stitched)
     if not ok:
         print(f"[警告] 写入失败: {output_path}")
+        return None
     return output_path
 
 
@@ -60,7 +62,7 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
         <data_dir>/<视频名>/video/<视频>   输入视频（自动移入）
         <data_dir>/<视频名>/crops/         去重后的裁剪图
         <data_dir>/<视频名>/clusters/      连续重复段核验中间状态
-        <data_dir>/<视频名>/final/res.jpg  拼接结果
+        <data_dir>/<视频名>/final/res.png  拼接结果
 
     Args:
         video_path: 输入视频路径（若不在 video/ 内会自动移入）
@@ -189,9 +191,11 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
 
     if stitch and saved > 0:
         report("stitch", 0.99, "拼接中")
-        stitched = stitch_scores(crops_dir, final_dir / "res.jpg")
+        stitched = stitch_scores(crops_dir, final_dir / "res.png")
         if stitched:
             print(f"拼接完成: {stitched}")
+        else:
+            print("[警告] 拼接失败（无图可拼或写盘失败）")
 
     report("done", 1.0, f"保存 {saved} 张")
     return saved

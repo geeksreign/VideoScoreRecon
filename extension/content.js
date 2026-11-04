@@ -71,7 +71,7 @@
       </div>
       <div class="se-row">
         <label>B 站 Cookie（SESSDATA，可空，提画质用）</label>
-        <input id="se-cookie" type="text" placeholder="SESSDATA=...">
+        <input id="se-cookie" type="text" placeholder="SESSDATA 值（可带或不带 SESSDATA= 前缀）">
       </div>
       <div class="se-status" id="se-status"></div>
       <div class="se-bar-wrap" id="se-bar-wrap">
@@ -194,7 +194,7 @@
     resultEl.querySelector('#se-result-img').src = url;
     const a = resultEl.querySelector('#se-download');
     a.href = url;
-    a.download = `score_${jobId}.jpg`;
+    a.download = `score_${jobId}.png`;
     resultEl.classList.add('se-visible');
     setStatus('✅ 完成');
   }

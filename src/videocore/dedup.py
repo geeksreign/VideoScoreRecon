@@ -65,9 +65,14 @@ def _align_by_translation(ref, mov, max_shift=30):
         borderValue=255,  # 填成白背景
     )
 
+    # 有效比对区：排除对齐产生的边缘空白；margin 钳制到宽高的 1/4，
+    # 保证中心区至少占一半，避免小图 + 大位移时 valid_mask 全空导致去重失效
     margin = int(max(abs(dx), abs(dy))) + 2
+    margin_y = min(margin, max(1, h // 4))
+    margin_x = min(margin, max(1, w // 4))
     valid_mask = np.zeros((h, w), dtype=bool)
-    valid_mask[margin:h - margin, margin:w - margin] = True
+    if h - 2 * margin_y > 0 and w - 2 * margin_x > 0:
+        valid_mask[margin_y:h - margin_y, margin_x:w - margin_x] = True
     return aligned, (dx, dy), valid_mask
 
 
@@ -77,10 +82,13 @@ def _scores_same(bw_ref, bw_mov, max_diff_ratio=0.01):
         bw_ref, bw_mov = _pad_to_common(bw_ref, bw_mov)
     aligned, (dx, dy), valid_mask = _align_by_translation(bw_ref, bw_mov)
     diff = cv2.absdiff(bw_ref, aligned)
-    diff_mask = (diff > 0) & valid_mask
-    diff_pixels = int(np.count_nonzero(diff_mask))
-    total = int(np.count_nonzero(valid_mask))
-    diff_ratio = diff_pixels / total if total else 1.0
+    if total := int(np.count_nonzero(valid_mask)):
+        diff_mask = (diff > 0) & valid_mask
+        diff_pixels = int(np.count_nonzero(diff_mask))
+        diff_ratio = diff_pixels / total
+    else:
+        # valid_mask 意外全空（防御）：回退到全图比对
+        diff_ratio = float(np.count_nonzero(diff)) / diff.size
     return diff_ratio <= max_diff_ratio, diff_ratio
 
 

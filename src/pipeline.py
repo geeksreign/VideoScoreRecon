@@ -103,7 +103,7 @@ def run_pipeline(video_input, data_dir, interval_sec=2, dedup_threshold=0.01,
         "saved": saved,
         "crops_dir": str(base / "crops"),
         "clusters_dir": str(base / "clusters"),
-        "result_path": str(base / "final" / "res.jpg"),
+        "result_path": str(base / "final" / "res.png"),
     }
     if info:
         result.update({"title": info.get("title"), "part": info.get("part")})
