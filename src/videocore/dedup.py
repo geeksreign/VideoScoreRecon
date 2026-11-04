@@ -159,10 +159,13 @@ class ClusterWriter:
         Args:
             img: BGR 图
             cluster_id: 该图所属连续重复段编号
+
+        Returns:
+            写盘是否成功
         """
         j = self._counters.get(cluster_id, 0)
         self._counters[cluster_id] = j + 1
-        cv2.imwrite(str(self.dir / f"cluster_{cluster_id}_{j}.jpg"), img)
+        return cv2.imwrite(str(self.dir / f"cluster_{cluster_id}_{j}.jpg"), img)
 
     def summary(self):
         """返回段编号 -> 段内张数的有序字典"""

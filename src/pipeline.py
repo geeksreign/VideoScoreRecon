@@ -58,7 +58,8 @@ def _download_from_url(url, data_dir, cookie=None, on_progress=None):
 
     if on_progress:
         on_progress(0.0, f"下载视频: {info['part']}")
-    result = download.download_bili_video(url, out, cookie=cookie, on_progress=on_progress)
+    result = download.download_bili_video(url, out, cookie=cookie,
+                                          on_progress=on_progress, info=info)
     print(f"下载完成: {result['title']} / {result['part']} "
           f"({result['width']}x{result['height']}) -> {out}")
     return str(out), info

@@ -22,9 +22,10 @@ def stitch_scores(out_dir, output_path=None):
     """
     out_dir = Path(out_dir)
     # 仅匹配抽帧裁剪图 score_<帧号>.jpg，避免把拼接输出本身拼进去
+    # （帧号位数不固定：≥100 万帧会产生 7 位）
     files = sorted(
         f for f in out_dir.iterdir()
-        if re.fullmatch(r'score_\d{6}\.jpg', f.name)
+        if re.fullmatch(r'score_\d+\.jpg', f.name)
     )
     imgs = [cv2.imread(str(f)) for f in files]
     imgs = [i for i in imgs if i is not None]
@@ -101,10 +102,18 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
         else:
             raise FileNotFoundError(f"找不到视频: {video_path}（也不在 {video_dir}）")
 
-    # 自动移入 video/ 目录
+    # 自动移入 video/ 目录（目标已存在且非同一文件时自动改名，防止覆盖）
     target = video_dir / src.name
     if src.resolve() != target.resolve():
         video_dir.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            n = 1
+            while True:
+                target = video_dir / f"{src.stem}_{n}{src.suffix}"
+                if not target.exists():
+                    break
+                n += 1
+            print(f"[提示] {video_dir / src.name} 已存在，改名移入: {target.name}")
         print(f"移动视频: {src} -> {target}")
         shutil.move(str(src), str(target))
         src = target
@@ -116,6 +125,7 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
 
     saved = 0
     skipped = 0
+    write_failed = 0
     frame_count = 0
     deduper = ImageDedup(dedup_threshold)
     cluster_writer = ClusterWriter(clusters_dir)
@@ -183,10 +193,13 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
             if crop is not None:
                 # 曲谱骨架比对去重：仅与前一帧比较，重复则跳过
                 is_new, cid = deduper.add(crop)
-                cluster_writer.write(crop, cid)
+                if not cluster_writer.write(crop, cid):
+                    write_failed += 1
                 if is_new:
-                    cv2.imwrite(str(crops_dir / f"score_{frame_count:06d}.jpg"), crop)
-                    saved += 1
+                    if cv2.imwrite(str(crops_dir / f"score_{frame_count:06d}.jpg"), crop):
+                        saved += 1
+                    else:
+                        write_failed += 1
                 else:
                     skipped += 1
 
@@ -194,6 +207,8 @@ def extract_and_crop(video_path, data_dir, interval_sec=2, dedup_threshold=0.01,
         tick_progress()
 
     print(f"保存 {saved} 张，去重跳过 {skipped} 张（阈值 {dedup_threshold}）")
+    if write_failed:
+        print(f"[警告] {write_failed} 张图写盘失败（磁盘空间/权限？）")
     summary = cluster_writer.summary()
     print(f"连续重复段汇总（共 {len(summary)} 段）:")
     for cid, n in summary.items():

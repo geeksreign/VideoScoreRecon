@@ -55,7 +55,7 @@ def remux(video_m4s, audio_m4s, out_mp4):
         raise RuntimeError(f"ffmpeg 混流失败:\n{proc.stderr[-2000:]}")
 
 
-def download_bili_video(url, out_path, cookie=None, qn=64, on_progress=None):
+def download_bili_video(url, out_path, cookie=None, qn=64, on_progress=None, info=None):
     """
     下载 B 站视频（DASH 分片）到本地 mp4
 
@@ -65,12 +65,14 @@ def download_bili_video(url, out_path, cookie=None, qn=64, on_progress=None):
         cookie: SESSDATA 登录 Cookie（可选）
         qn: 请求画质
         on_progress: 可选回调 on_progress(progress 0~1, message)
+        info: 可选，调用方已通过 get_video_info 获取的视频信息（避免重复请求）
 
     Returns:
         元数据 dict
     """
     bvid, page = parse_url(url)
-    info = get_video_info(bvid, page, cookie)
+    if info is None:
+        info = get_video_info(bvid, page, cookie)
     dash = get_playurl(bvid, info["cid"], qn, cookie)
     video, audio = pick_streams(dash)
 
