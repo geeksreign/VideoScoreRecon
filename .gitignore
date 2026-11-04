@@ -14,3 +14,4 @@ wheels/
 
 # Run data (videos, crops, results)
 data/
+node_modules/

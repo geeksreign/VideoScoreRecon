@@ -1,0 +1,367 @@
+{
+ "rect_cases": [
+  {
+   "name": "blues_186",
+   "png": "rect_blues_000186.png",
+   "rect": null
+  },
+  {
+   "name": "blues_248",
+   "png": "rect_blues_000248.png",
+   "rect": null
+  },
+  {
+   "name": "blues_310",
+   "png": "rect_blues_000310.png",
+   "rect": null
+  },
+  {
+   "name": "blues_372",
+   "png": "rect_blues_000372.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "blues_13888",
+   "png": "rect_blues_013888.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "blues_13950",
+   "png": "rect_blues_013950.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "blues_14012",
+   "png": "rect_blues_014012.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "blues_15252",
+   "png": "rect_blues_015252.png",
+   "rect": [
+    0,
+    408,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "blues_18910",
+   "png": "rect_blues_018910.png",
+   "rect": null
+  },
+  {
+   "name": "blues_18972",
+   "png": "rect_blues_018972.png",
+   "rect": null
+  },
+  {
+   "name": "gary_50",
+   "png": "rect_gary_000050.png",
+   "rect": [
+    0,
+    370,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "gary_1542",
+   "png": "rect_gary_001542.png",
+   "rect": [
+    0,
+    364,
+    852,
+    480
+   ]
+  },
+  {
+   "name": "leiqiao_14700",
+   "png": "rect_leiqiao_014700.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18000",
+   "png": "rect_leiqiao_018000.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18600",
+   "png": "rect_leiqiao_018600.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18650",
+   "png": "rect_leiqiao_018650.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18675",
+   "png": "rect_leiqiao_018675.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18700",
+   "png": "rect_leiqiao_018700.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  },
+  {
+   "name": "leiqiao_18750",
+   "png": "rect_leiqiao_018750.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ]
+  }
+ ],
+ "refine_cases": [
+  {
+   "name": "blues_372",
+   "png": "crop_blues_000372.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ],
+   "crop_size": [
+    852,
+    154
+   ],
+   "crop_gray_fnv": 3307862478
+  },
+  {
+   "name": "blues_13950",
+   "png": "crop_blues_013950.png",
+   "rect": [
+    0,
+    320,
+    852,
+    480
+   ],
+   "crop_size": [
+    852,
+    155
+   ],
+   "crop_gray_fnv": 383694102
+  },
+  {
+   "name": "leiqiao_18675",
+   "png": "crop_leiqiao_018675.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ],
+   "crop_size": [
+    852,
+    193
+   ],
+   "crop_gray_fnv": 590977894
+  },
+  {
+   "name": "leiqiao_18600",
+   "png": "crop_leiqiao_018600.png",
+   "rect": [
+    0,
+    0,
+    852,
+    204
+   ],
+   "crop_size": [
+    852,
+    193
+   ],
+   "crop_gray_fnv": 3852101788
+  }
+ ],
+ "binary_cases": [
+  {
+   "name": "blues_372",
+   "png": "crop_blues_000372.png",
+   "bw_fnv": 62640355
+  },
+  {
+   "name": "leiqiao_18675",
+   "png": "crop_leiqiao_018675.png",
+   "bw_fnv": 1637495890
+  },
+  {
+   "name": "blues_186",
+   "png": "crop_blues_000186.png",
+   "bw_fnv": 3833861832
+  }
+ ],
+ "phasecorr_cases": [
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    0,
+    0
+   ],
+   "expected": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    5,
+    3
+   ],
+   "expected": [
+    5.001614831478264,
+    3.0000060238080835
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    -7,
+    11
+   ],
+   "expected": [
+    -6.996365398178796,
+    10.998884342003521
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    25,
+    -9
+   ],
+   "expected": [
+    24.99739912041531,
+    -8.996256166857904
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    30,
+    0
+   ],
+   "expected": [
+    30.000833669209726,
+    0.0028903057300908586
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    0,
+    20
+   ],
+   "expected": [
+    0.006054103913527342,
+    19.99722612603003
+   ]
+  },
+  {
+   "png": "rect_blues_000372.png",
+   "roll": [
+    -15,
+    -15
+   ],
+   "expected": [
+    -15.004202228023871,
+    -14.998434605903611
+   ]
+  }
+ ],
+ "dedup_cases": [
+  {
+   "a": "dedup_leiqiao_018675.png",
+   "b": "dedup_leiqiao_018700.png",
+   "expected_same": true,
+   "expected_ratio": 0.0
+  },
+  {
+   "a": "dedup_blues_000372.png",
+   "b": "dedup_blues_014012.png",
+   "expected_same": false,
+   "expected_ratio": 0.04182979769022852
+  },
+  {
+   "a": "dedup_leiqiao_018650.png",
+   "b": "dedup_leiqiao_018675.png",
+   "expected_same": true,
+   "expected_ratio": 0.0
+  }
+ ],
+ "chain_cases": [
+  {
+   "pngs": [
+    "chain_leiqiao_018000.png",
+    "chain_leiqiao_018600.png",
+    "chain_leiqiao_018650.png",
+    "chain_leiqiao_018675.png",
+    "chain_leiqiao_018700.png",
+    "chain_leiqiao_018750.png"
+   ],
+   "expected_is_new": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  }
+ ]
+}

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VSR parity runner</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script src="../lib/opencv.js"></script>
+<script src="../src/pipeline/constants.js"></script>
+<script src="../src/pipeline/phasecorr.js"></script>
+<script src="../src/pipeline/pic_clip.js"></script>
+<script src="../src/pipeline/score_detect.js"></script>
+<script src="../src/pipeline/dedup.js"></script>
+<script>
+(function () {
+  const results = [];
+  const outEl = document.getElementById('out');
+  function record(name, pass, detail) {
+    results.push({ name, pass: !!pass, detail: detail || '' });
+    outEl.textContent = `running ${results.length}...`;
+    console.log((pass ? 'PASS ' : 'FAIL ') + name + ' ' + (detail || ''));
+  }
+  function finish(obj) {
+    // 完成信号走 DOM（属性+文本），避免 puppeteer 隔离世界读不到 window 全局
+    outEl.textContent = JSON.stringify(obj, null, 1);
+    outEl.dataset.done = '1';
+  }
+  console.log('[load] runner-inline');
+
+  // ---- 工具 ----
+  function fnv1a(bytes) {
+    let h = 2166136261;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+  function matGrayFnv(m) {
+    const parts = [];
+    for (let y = 0; y < m.rows; y++) {
+      for (let x = 0; x < m.cols; x++) parts.push(m.data[y * VSR.rowStep(m) + x]);
+    }
+    return fnv1a(new Uint8Array(parts));
+  }
+  function loadImage(url) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => rej(new Error('load fail ' + url));
+      img.src = url;
+    });
+  }
+  async function loadGrayMat(path) {
+    const img = await loadImage('fixtures/' + path);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const cv2d = document.createElement('canvas');
+    cv2d.width = w; cv2d.height = h;
+    const ctx = cv2d.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const id = ctx.getImageData(0, 0, w, h).data;
+    const m = new cv.Mat(h, w, cv.CV_8U);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) m.data[y * VSR.rowStep(m) + x] = id[(y * w + x) * 4];
+    return m;
+  }
+  async function loadBGRMat(path) {
+    const img = await loadImage('fixtures/' + path);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const cv2d = document.createElement('canvas');
+    cv2d.width = w; cv2d.height = h;
+    const ctx = cv2d.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const id = ctx.getImageData(0, 0, w, h).data;
+    const m = new cv.Mat(h, w, cv.CV_8UC3);
+    for (let y = 0; y < h; y++) {
+      const off = y * VSR.rowStep(m);
+      for (let x = 0; x < w; x++) {
+        const s = (y * w + x) * 4;
+        m.data[off + x * 3] = id[s + 2];      // B
+        m.data[off + x * 3 + 1] = id[s + 1];  // G
+        m.data[off + x * 3 + 2] = id[s];      // R
+      }
+    }
+    return m;
+  }
+  function grayArr(m) {
+    const out = new Uint8Array(m.rows * m.cols);
+    for (let y = 0; y < m.rows; y++)
+      for (let x = 0; x < m.cols; x++) out[y * m.cols + x] = m.data[y * VSR.rowStep(m) + x];
+    return out;
+  }
+  // 期望为 [x1,y1,x2,y2]（右下开区间坐标），JS 返回 {x,y,w,h}
+  const rectsEqual = (a, b) =>
+    a && b && a[0] === b.x && a[1] === b.y && a[2] === b.x + b.w && a[3] === b.y + b.h;
+
+  async function run() {
+    const cases = await (await fetch('fixtures/cases.json')).json();
+
+    // 1. findScoreRect
+    for (const c of cases.rect_cases) {
+      const g = await loadGrayMat(c.png);
+      const rect = VSR.findScoreRect(g);
+      g.delete();
+      const exp = c.rect;
+      const pass = (exp === null && rect === null) ||
+        (exp !== null && rect !== null && rectsEqual(exp, rect));
+      record('rect/' + c.name, pass,
+        'got=' + JSON.stringify(rect) + ' exp=' + JSON.stringify(exp));
+    }
+
+    // 2. cropScore + refineTopByProjection
+    for (const c of cases.refine_cases) {
+      const bgr = await loadBGRMat(c.png);
+      const rect = c.rect ? { x: c.rect[0], y: c.rect[1], w: c.rect[2] - c.rect[0], h: c.rect[3] - c.rect[1] } : null;
+      const crop = VSR.cropScore(bgr, rect);
+      bgr.delete();
+      if (!crop) { record('refine/' + c.name, false, 'crop=null'); continue; }
+      const gm = new cv.Mat();
+      cv.cvtColor(crop, gm, cv.COLOR_BGR2GRAY);
+      const sizeOk = crop.cols === c.crop_size[0] && crop.rows === c.crop_size[1];
+      const hash = matGrayFnv(gm);
+      const pass = sizeOk && hash === c.crop_gray_fnv;
+      record('refine/' + c.name, pass,
+        `size=${crop.cols}x${crop.rows} exp=${c.crop_size} hash=${hash} exp=${c.crop_gray_fnv}`);
+      crop.delete(); gm.delete();
+    }
+
+    // 3. extractScoreBinary
+    for (const c of cases.binary_cases) {
+      const bgr = await loadBGRMat(c.png);
+      const bw = VSR.extractScoreBinary(bgr);
+      bgr.delete();
+      const hash = matGrayFnv(bw);
+      bw.delete();
+      record('binary/' + c.name, hash === c.bw_fnv,
+        `hash=${hash} exp=${c.bw_fnv}`);
+    }
+
+    // 4. phaseCorrelate（roll 后与 cv2 输出对齐）
+    const PHASE_TOL = 0.5;
+    for (const c of cases.phasecorr_cases) {
+      const g = await loadGrayMat(c.png);
+      const w = g.cols, h = g.rows;
+      const ref = new Float32Array(w * h);
+      const mov = new Float32Array(w * h);
+      const base = grayArr(g);
+      g.delete();
+      const [sx, sy] = c.roll;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          ref[y * w + x] = base[y * w + x];
+          const yy = ((y - sy) % h + h) % h;   // np.roll 正 sy → 内容下移
+          const xx = ((x - sx) % w + w) % w;
+          mov[y * w + x] = base[yy * w + xx];
+        }
+      }
+      const r = VSR.phaseCorrelate(ref, mov, w, h);
+      const [edx, edy] = c.expected;
+      const pass = Math.abs(r.dx - edx) <= PHASE_TOL && Math.abs(r.dy - edy) <= PHASE_TOL;
+      record(`phase/roll(${sx},${sy})`, pass,
+        `got=(${r.dx.toFixed(3)},${r.dy.toFixed(3)}) exp=(${edx.toFixed(3)},${edy.toFixed(3)})`);
+    }
+
+    // 5. scoresSame
+    for (const c of cases.dedup_cases) {
+      const a = await loadBGRMat(c.a);
+      const b = await loadBGRMat(c.b);
+      const ba = VSR.extractScoreBinary(a);
+      const bb = VSR.extractScoreBinary(b);
+      a.delete(); b.delete();
+      const r = VSR.scoresSame(ba, bb, 0.01);
+      ba.delete(); bb.delete();
+      const pass = r.same === c.expected_same &&
+        Math.abs(r.ratio - c.expected_ratio) <= 0.003;
+      record(`dedup/${c.a}~${c.b}`, pass,
+        `same=${r.same}(exp ${c.expected_same}) ratio=${r.ratio.toFixed(5)}(exp ${c.expected_ratio.toFixed(5)})`);
+    }
+
+    // 6. ImageDedup 链
+    for (const c of cases.chain_cases) {
+      const dedup = new VSR.ImageDedup(0.01);
+      const got = [];
+      for (const p of c.pngs) {
+        const m = await loadBGRMat(p);
+        got.push(dedup.add(m).isNew);
+        m.delete();
+      }
+      dedup.dispose();
+      const pass = JSON.stringify(got) === JSON.stringify(c.expected_is_new);
+      record('chain/' + c.pngs[0], pass,
+        'got=' + JSON.stringify(got) + ' exp=' + JSON.stringify(c.expected_is_new));
+    }
+  }
+
+  // cv 是 Emscripten thenable：.then 返回值不可链、Promise.resolve/race 的
+  // assimilation 会引发微任务风暴（主线程假死）。安全模式 = 对 thenable 只做
+  // 一次 .then 进入，后续全部是原生 Promise/async 链（probe 已验证）。
+  function ready(cv) {
+    return (cv && typeof cv.then === 'function') ? cv : Promise.resolve(cv);
+  }
+  ready(window.cv).then(() => {
+    console.log('cv ready, running cases, Mat=' + typeof (window.cv && window.cv.Mat));
+    run().then(
+      () => {
+        const failed = results.filter(r => !r.pass);
+        finish({ total: results.length, failed: failed.length, failures: failed });
+      },
+      (e) => finish({ total: -1, failed: -1, error: String(e && e.stack || e) })
+    );
+  });
+})();
+</script>
+</body>
+</html>
