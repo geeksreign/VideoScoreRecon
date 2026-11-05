@@ -76,8 +76,7 @@ window.VSRAcquire = {
     await waitStatus((s) => s.includes('本地引擎'), 8000);
     step('panel_local_mode', true, '本地引擎状态文案');
 
-    // 3. 缩小参数跑真实 worker 链（mock acquire 提供视频）
-    document.getElementById('se-interval').value = '5';
+    // 3. 缩小参数跑真实 worker 链（mock acquire 提供视频；抽帧间隔走默认 2.5s）
     document.getElementById('se-end').value = '15';
     document.getElementById('se-start-btn').click();
     const st = await waitStatus(

@@ -112,12 +112,6 @@
     return parseFloat(s);
   }
 
-  // 数值解析：合法数字（含 0）生效，空/非法回退默认值
-  function num(v, def) {
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : def;
-  }
-
   let polling = false;
   const resultUrls = [];   // 本次展示占用的 Blob URL，下次运行前统一释放
 
@@ -140,28 +134,12 @@
     panel.innerHTML = `
       <h3>🎼 视频乐谱提取器</h3>
       <div class="se-row">
-        <label>当前视频 URL</label>
-        <input id="se-url" type="text" readonly value="${location.href}">
-      </div>
-      <div class="se-row">
         <label>开始时间（秒或 mm:ss，可空）</label>
         <input id="se-start" type="text" placeholder="例如 30 或 0:30">
       </div>
       <div class="se-row">
         <label>结束时间（秒或 mm:ss，可空）</label>
         <input id="se-end" type="text" placeholder="例如 60 或 1:00">
-      </div>
-      <div class="se-row">
-        <label>抽帧间隔（秒，默认 2.5）</label>
-        <input id="se-interval" type="text" value="2.5">
-      </div>
-      <div class="se-row">
-        <label>去重阈值（差异占比，默认 0.01）</label>
-        <input id="se-thresh" type="text" value="0.01">
-      </div>
-      <div class="se-row">
-        <label>B 站 Cookie（SESSDATA，可空，提画质用）</label>
-        <input id="se-cookie" type="text" placeholder="SESSDATA 值（可带或不带 SESSDATA= 前缀）">
       </div>
       <div class="se-status" id="se-status"></div>
       <div class="se-bar-wrap" id="se-bar-wrap">
@@ -180,9 +158,6 @@
 
     panel.querySelector('#se-start-btn').addEventListener('click', startExtract);
     panel.querySelector('#se-close-btn').addEventListener('click', togglePanel);
-    getCfg()
-      .then((cfg) => { panel.querySelector('#se-cookie').value = cfg.cookie || ''; })
-      .catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
     checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
   }
 
@@ -190,7 +165,6 @@
     const panel = document.getElementById('score-ext-panel');
     const open = panel.classList.toggle('se-open');
     if (open) {
-      panel.querySelector('#se-url').value = location.href;
       checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
     }
   }
@@ -243,9 +217,9 @@
         url: location.href,
         start_time: parseTime(p.querySelector('#se-start').value),
         end_time: parseTime(p.querySelector('#se-end').value),
-        interval_sec: num(p.querySelector('#se-interval').value, 2.5),
-        dedup_threshold: num(p.querySelector('#se-thresh').value, 0.01),
-        cookie: p.querySelector('#se-cookie').value.trim() || undefined,
+        interval_sec: 2.5,          // 抽帧间隔默认值（面板不再暴露）
+        dedup_threshold: 0.01,      // 去重阈值默认值（面板不再暴露）
+        cookie: cfg.cookie || undefined,   // SESSDATA 由设置页维护到 storage
       };
       setStatus('提交任务...');
       const r = await api('/api/extract', { method: 'POST', body: JSON.stringify(payload) });
@@ -335,8 +309,8 @@
     const params = {
       startTime: parseTime(p.querySelector('#se-start').value),
       endTime: parseTime(p.querySelector('#se-end').value),
-      intervalSec: num(p.querySelector('#se-interval').value, 2.5),
-      dedupThreshold: num(p.querySelector('#se-thresh').value, 0.01),
+      intervalSec: 2.5,          // 抽帧间隔默认值（面板不再暴露）
+      dedupThreshold: 0.01,      // 去重阈值默认值（面板不再暴露）
     };
     try {
       setStatus('获取视频流...');
