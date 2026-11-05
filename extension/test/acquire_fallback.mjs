@@ -18,7 +18,7 @@ function check(name, ok, detail) {
 function makeSandbox(opts = {}) {
   const sandbox = {
     URL, Promise, Date, setTimeout, clearTimeout, queueMicrotask,
-    performance: { getEntriesByType: () => [] },
+    performance: opts.performance || { getEntriesByType: () => [] },
     fetch: opts.fetch,
   };
   sandbox.window = sandbox;
@@ -151,6 +151,88 @@ function makeChrome(connectScript) {
   const msg = (err && err.message) || '';
   check('http_403_recorded', msg.includes('[cdn.example|cred] HTTP 403'), msg.slice(0, 80));
   check('http_403_continues_layers', msg.includes('[cdn.example|nocred]'), '');
+}
+
+// ---- 5. 画质策略 acquire 编排（默认480=playurl主取 / player=嗅探优先 / 兜底 / 前缀守护） ----
+const PAGE_URL = 'https://www.bilibili.com/video/BV1test1234/';
+const SNIFF_ENTRY = { performance: { getEntriesByType: () => [{ name: 'https://sniff.example/a.m4s' }] } };
+
+function viewOk() {
+  return { ok: true, json: async () => ({ code: 0, data: { cid: 7, title: 'T', duration: 10 } }) };
+}
+function playurlOk() {
+  return { ok: true, json: async () => ({ code: 0, data: { dash: { video: [{
+    id: 32, codecs: 'avc1.640033', baseUrl: 'https://cdn.example/play.m4s',
+    backupUrl: [], width: 640, height: 480 }] } } }) };
+}
+
+// 5.1 默认（不传 opts）= 480P：playurl 请求 qn=32，嗅探 URL 不被取用
+{
+  const log = [];
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url) => {
+      log.push(url);
+      if (url.includes('/x/web-interface/view')) return viewOk();
+      if (url.includes('/x/player/playurl')) return playurlOk();
+      if (url === 'https://cdn.example/play.m4s') return okResponse([1, 2, 3], 3);
+      throw new TypeError('unexpected ' + url);
+    },
+  }, SNIFF_ENTRY));
+  const r = await sb.VSRAcquire.acquire(PAGE_URL, () => {});
+  check('q_default_channel_playurl', r.channel === 'playurl', r.channel);
+  check('q_default_label_480p', r.label.startsWith('480p'), r.label);
+  check('q_default_qn32', log.some((u) => u.includes('/playurl') && u.includes('qn=32')),
+    log.filter((u) => u.includes('/playurl')).join());
+  check('q_default_sniff_untouched', !log.some((u) => u.includes('sniff.example')), log.join(' , '));
+}
+
+// 5.2 quality='player'：嗅探优先，playurl 不被调用
+{
+  const log = [];
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url) => {
+      log.push(url);
+      if (url === 'https://sniff.example/a.m4s') return okResponse([7], 1);
+      throw new TypeError('unexpected ' + url);
+    },
+  }, SNIFF_ENTRY));
+  const r = await sb.VSRAcquire.acquire(PAGE_URL, () => {}, { quality: 'player' });
+  check('q_player_channel_sniff', r.channel === 'sniff', r.channel);
+  check('q_player_sniff_used', log.some((u) => u.includes('sniff.example')), log.join(','));
+  check('q_player_no_playurl', !log.some((u) => u.includes('/playurl')), log.join(','));
+}
+
+// 5.3 quality='480' 且 playurl 网络失败 → 嗅探兜底成功
+{
+  const log = [];
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url) => {
+      log.push(url);
+      if (url.includes('/x/web-interface/view')) return viewOk();
+      if (url.includes('/x/player/playurl')) throw new TypeError('Failed to fetch');
+      if (url === 'https://sniff.example/a.m4s') return okResponse([9], 1);
+      throw new TypeError('unexpected ' + url);
+    },
+  }, SNIFF_ENTRY));
+  const r = await sb.VSRAcquire.acquire(PAGE_URL, () => {}, { quality: '480' });
+  check('q_fallback_sniff_channel', r.channel === 'sniff', r.channel);
+  check('q_fallback_playurl_tried', log.some((u) => u.includes('/playurl')), '');
+}
+
+// 5.4 全败：消息仍以「所有下载源均失败」开头（授权重试按钮契约）并聚合两通道原因
+{
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url) => {
+      if (url.includes('/x/web-interface/view')) return viewOk();
+      if (url.includes('/x/player/playurl')) throw new TypeError('Failed to fetch');
+      throw new TypeError('unexpected ' + url);
+    },
+  }, { performance: { getEntriesByType: () => [] } }));   // 无嗅探记录
+  let err = null;
+  try { await sb.VSRAcquire.acquire(PAGE_URL, () => {}); } catch (e) { err = e; }
+  const msg = (err && err.message) || '';
+  check('q_allfail_prefix', msg.startsWith('所有下载源均失败:'), msg.slice(0, 60));
+  check('q_allfail_both_channels', msg.includes('playurl[') && msg.includes('嗅探['), msg);
 }
 
 if (failures) {

@@ -8,7 +8,7 @@
     h1 { font-size: 18px; }
     h2 { font-size: 15px; margin-top: 24px; }
     label { display: block; margin-top: 14px; font-size: 13px; color: #61666d; }
-    input { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border: 1px solid #ccd0d6; border-radius: 6px; font-size: 13px; }
+    input, select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border: 1px solid #ccd0d6; border-radius: 6px; font-size: 13px; background: #fff; }
     button { margin-top: 18px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #fb7299; color: #fff; font-size: 14px; cursor: pointer; }
     #status { margin-top: 12px; font-size: 13px; color: #00aeec; white-space: pre-wrap; }
     .hint { font-size: 12px; color: #9499a0; margin-top: 16px; line-height: 1.7; }
@@ -24,6 +24,15 @@
     2. 填写时间范围（可空），点「开始提取」<br>
     3. 完成后预览、下载拼接长图——全部在本机浏览器完成，不上传任何数据
   </div>
+
+  <h2>视频画质（提取用）</h2>
+  <label>默认 480P：与本地 Python 管线同源，去重与结果对比最稳定</label>
+  <select id="quality">
+    <option value="480">480P（默认，与本地 Python 一致）</option>
+    <option value="720">720P</option>
+    <option value="1080">1080P</option>
+    <option value="player">跟随播放器（嗅探优先，画质=正在观看的流）</option>
+  </select>
 
   <h2>高级：本地 Python 服务（可选）</h2>
   <label>服务地址（留空 = 使用内置本地引擎）</label>

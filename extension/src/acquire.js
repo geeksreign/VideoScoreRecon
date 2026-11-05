@@ -1,10 +1,10 @@
 // 视频源获取（content script 环境运行，挂在 window.VSRAcquire）
 //
-// 双通道：
-//   ① 嗅探：performance.getEntries 里播放器已请求的视频 .m4s —— 零 API 调用，
-//      画质/登录态与用户正在观看的完全一致（首选）
-//   ② 兜底：直调 B 站 playurl API（port 自 src/video_scrap/bili/api.py，
-//      游客/环境 cookie 自动携带，credentials:include）
+// 取流策略（opts.quality，设置页可选，默认 480——与本地 Python 管线同源、去重最稳）：
+//   480/720/1080（默认 480，playurl qn=32/64/80）：playurl 主取（AVC 优先，同
+//      Python pick_streams）→ 失败降级播放器嗅探（画质可能回到播放器档）
+//   player（跟随播放器）：嗅探主取（零 API、画质=正在观看的流）→ 失败 playurl(qn=80) 兜底
+//   playurl port 自 src/video_scrap/bili/api.py，页面 cookie 自动携带（credentials:include）
 //
 // 下载分三层（fetchWithProgress）：
 //   ① 页面源 fetch credentials:include —— 自带 Referer/cookie（首选）
@@ -51,9 +51,9 @@ window.VSRAcquire = (function () {
     };
   }
 
-  async function getPlayUrl(bvid, cid) {
+  async function getPlayUrl(bvid, cid, qn = 80) {
     const data = await getJson(API_PLAYURL, {
-      bvid, cid, qn: 80, fnval: 16, fnver: 0, fourk: 1,
+      bvid, cid, qn, fnval: 16, fnver: 0, fourk: 1,
     });
     const dash = data.dash;
     if (!dash || !dash.video || !dash.video.length) {
@@ -195,31 +195,74 @@ window.VSRAcquire = (function () {
     return (n / 1048576).toFixed(1) + 'MB';
   }
 
-  /**
-   * 主入口：返回可解码的视频 ArrayBuffer
-   * @param {string} pageUrl 当前 B 站页面 URL
-   * @param {(stage:string,p:number,m:string)=>void} report 进度
-   * @returns {Promise<{buffer:ArrayBuffer, channel:string, label:string}>}
-   */
-  async function acquire(pageUrl, report) {
-    // 通道① 嗅探
+  /** 档位 → playurl qn（480=32 与本地 Python 实得流一致；API 无该档时以实际返回为准） */
+  const QN_BY_QUALITY = { '480': 32, '720': 64, '1080': 80 };
+
+  /** 嗅探取流：performance 里播放器最近请求的视频 .m4s（无记录/取流失败抛错） */
+  async function viaSniff(report) {
     const sniffed = sniffUrls();
-    if (sniffed.length) {
-      report('download', 0.02, '通道① 嗅探到播放器视频流');
-      const { buffer, url } = await fetchWithProgress(sniffed.slice(0, 3), (p, m) =>
-        report('download', 0.02 + p * 0.96, m));
-      return { buffer, channel: 'sniff', label: hostOf(url) };
-    }
-    // 通道② playurl API
-    report('download', 0.02, '通道② 调用 playurl API');
+    if (!sniffed.length) throw new Error('播放器无 .m4s 请求记录');
+    report('download', 0.02, '嗅探到播放器视频流');
+    const { buffer, url } = await fetchWithProgress(sniffed.slice(0, 3), (p, m) =>
+      report('download', 0.02 + p * 0.96, m));
+    return { buffer, channel: 'sniff', label: hostOf(url) };
+  }
+
+  /** playurl 取流（AVC 优先），label 用实际分辨率（qn 为请求档，实际可能被降档） */
+  async function viaPlayurl(pageUrl, report, qn) {
     const { bvid, page } = parseUrl(pageUrl);
     const info = await getVideoInfo(bvid, page);
     report('download', 0.06, `视频: ${info.part || info.title}`);
-    const { urls, quality, width, height } = await getPlayUrl(bvid, info.cid);
+    const { urls, width, height } = await getPlayUrl(bvid, info.cid, qn);
     report('download', 0.08, `画质 ${height}p ${width}x${height}`);
     const { buffer, url } = await fetchWithProgress(urls, (p, m) =>
       report('download', 0.08 + p * 0.9, m));
     return { buffer, channel: 'playurl', label: `${height}p ${hostOf(url)}` };
+  }
+
+  /**
+   * 主入口：返回可解码的视频 ArrayBuffer
+   * @param {string} pageUrl 当前 B 站页面 URL
+   * @param {(stage:string,p:number,m:string)=>void} report 进度
+   * @param {{quality?:string}} [opts] quality: '480'（默认）|'720'|'1080'|'player'
+   * @returns {Promise<{buffer:ArrayBuffer, channel:string, label:string}>}
+   */
+  async function acquire(pageUrl, report, opts) {
+    const quality = (opts && opts.quality) || '480';
+    const qn = QN_BY_QUALITY[quality] || 32;
+
+    if (quality !== 'player') {
+      // 指定画质：playurl 主取 → 失败嗅探兜底（画质回到播放器档）
+      report('download', 0.02, `画质策略 ${quality}P：playurl 取流`);
+      let playErr = null;
+      try {
+        return await viaPlayurl(pageUrl, report, qn);
+      } catch (e) {
+        playErr = e;
+        report('download', 0.02, `playurl 失败（${e && e.message}），嗅探兜底`);
+      }
+      try {
+        return await viaSniff(report);
+      } catch (e2) {
+        throw new Error('所有下载源均失败: '
+          + `playurl[${playErr && playErr.message}] | 嗅探[${e2 && e2.message}]`);
+      }
+    }
+
+    // 跟随播放器：嗅探主取 → 失败 playurl(qn=80) 兜底
+    let sniffErr = null;
+    try {
+      return await viaSniff(report);
+    } catch (e) {
+      sniffErr = e;
+      report('download', 0.02, `嗅探不可用（${e && e.message}），playurl 兜底`);
+    }
+    try {
+      return await viaPlayurl(pageUrl, report, 80);
+    } catch (e2) {
+      throw new Error('所有下载源均失败: '
+        + `嗅探[${sniffErr && sniffErr.message}] | playurl[${e2 && e2.message}]`);
+    }
   }
 
   function hostOf(u) {

@@ -1,7 +1,7 @@
 // 内容脚本：在 B 站视频页注入“提取乐谱”按钮与面板
 //
 // 双模式（options 页 baseUrl 决定）：
-//   - baseUrl 留空（默认）= 纯浏览器本地：acquire 双通道取流 → 扩展 Worker 全流水线
+//   - baseUrl 留空（默认）= 纯浏览器本地：acquire 按设置画质取流（默认 480P）→ 扩展 Worker 全流水线
 //   - baseUrl 非空 = 高级：交给本地 Python 服务（老流程）
 (() => {
   const DEFAULT_BASE = '';   // '' = 本地模式
@@ -290,7 +290,7 @@
       releaseResultUrls();
       document.getElementById('se-downloads').innerHTML = '';
       if (!cfg.baseUrl) {
-        await localExtract();
+        await localExtract(cfg);
         return;
       }
       // ---- 高级 HTTP 模式（老流程）----
@@ -385,7 +385,7 @@
   }
 
   // ---------- 本地模式 ----------
-  async function localExtract() {
+  async function localExtract(cfg) {
     polling = true;
     const p = document.getElementById('score-ext-panel');
     const params = {
@@ -396,8 +396,10 @@
     };
     try {
       setStatus('获取视频流...');
-      const acq = await window.VSRAcquire.acquire(location.href, (stage, prog, msg) =>
-        setProgress(stage, prog, msg));
+      const acq = await window.VSRAcquire.acquire(
+        location.href,
+        (stage, prog, msg) => setProgress(stage, prog, msg),
+        { quality: (cfg && cfg.quality) || '480' });
       setProgress('download', 1, `视频就绪（${acq.channel}: ${acq.label}）`);
 
       const result = await runWorker(acq.buffer, params, (m) =>

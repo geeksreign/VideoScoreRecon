@@ -34,10 +34,10 @@ Python（src/，参考实现与 oracle）              Chrome 扩展（extension
 ┌──────────────────────────────┐          ┌──────────────────────────────────────┐
 │ pipeline.py 编排              │          │ content.js  UI + 模式分流             │
 │  ├ video_scrap/bili 下载      │          │ src/acquire.js  视频源双通道          │
-│  ├ videocore/video_io 抽帧    │   对齐    │  ① 嗅探播放器 .m4s ② playurl API     │
+│  ├ videocore/video_io 抽帧    │   对齐    │  ① playurl 画质默认480P ② 嗅探兜底   │
 │  ├ score_detect/pic_clip 检测 │ ───────► │ src/worker.js  Worker 流水线          │
 │  ├ dedup 相邻帧去重           │  fixtures │  ├ decode.js   mp4box+WebCodecs      │
-│  └ stitch_scores 纵向拼接     │  37 例    │  ├ pipeline/   OpenCV.js 移植        │
+│  └ stitch_scores 纵向拼接     │  40 例    │  ├ pipeline/   OpenCV.js 移植        │
 │ server/ FastAPI（扩展 HTTP 模式）│          │  └ stitch.js   canvas 分段 PNG       │
 └──────────────────────────────┘          └──────────────────────────────────────┘
 ```
@@ -87,7 +87,7 @@ src/                  Python 流水线 + FastAPI 服务（参考实现）
 extension/            Chrome 扩展（MV3，产品）
   manifest.json       权限：storage + bilibili/API/CDN host
   content.js          注入 UI，本地/HTTP 双模式分流
-  src/acquire.js      视频源双通道（嗅探优先 / playurl 兜底）
+  src/acquire.js      视频源取流（默认480P: playurl 主取 / 嗅探兜底，设置页四档）
   src/worker.js       处理 Worker（解码→检测→去重→拼接）
   src/pipeline/       OpenCV.js 算法移植（与 src/videocore 同源语义）
   src/decode.js       mp4box 解封装 + WebCodecs 顺序解码
@@ -104,5 +104,5 @@ data/                 运行数据（gitignore）
 
 - 仅支持白纸乐谱视频（阈值化检测，深色模式不支持）；参数按典型乐谱 App 调优
 - 单段输出高度 >60000px 时自动分段（`score_..._p1.png`…）
-- B 站播放地址可能变更（WBI 签名未实现；通道①嗅探可绕开 API 变动）
+- B 站 playurl 可能变更（WBI 签名未实现；现为主取路径，失败自动降级嗅探兜底可绕开 API 变动）
 - 真机扩展注入的自动化受 Chrome 版本限制，见上方手动验收清单
