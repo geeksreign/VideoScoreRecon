@@ -97,8 +97,23 @@ window.VSRAcquire = {
     step('download_link', info.links.length > 0 && /\.png$/.test(info.links[0].download),
       JSON.stringify(info.links));
 
+    // 5. 连续第二次提取（回归：成功后改结束时间再点「开始提取」无反应）
+    //    点击的同步段会把状态立刻改离上次终态；polling 卡死会停在「⏳」并快速失败
+    document.getElementById('se-end').value = '10';
+    document.getElementById('se-start-btn').click();
+    await waitStatus((s) => s !== st, 8000);
+    const st2 = await waitStatus(
+      (s) => s.startsWith('✅ 完成') || s.startsWith('❌') || s.startsWith('⏳'), 240000);
+    step('extract_again', st2.startsWith('✅ 完成'), st2);
+    if (!st2.startsWith('✅ 完成')) throw new Error('第二次提取异常: ' + st2);
+    const info2 = {
+      visible: document.getElementById('se-result').classList.contains('se-visible'),
+      links: Array.from(document.querySelectorAll('#se-downloads a')).length,
+    };
+    step('result_again', info2.visible && info2.links > 0, JSON.stringify(info2));
+
     const failed = log.filter((l) => !l.ok);
-    finish({ pass: failed.length === 0, total: log.length, failed: failed.length, log, info });
+    finish({ pass: failed.length === 0, total: log.length, failed: failed.length, log, info, info2 });
   }
 
   main().catch((e) => {

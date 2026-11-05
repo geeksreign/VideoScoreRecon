@@ -6,24 +6,54 @@
 (() => {
   const DEFAULT_BASE = '';   // '' = 本地模式
 
-  let ctxDead = false;   // 扩展被重载/禁用后为 true（keepalive port 断开）
+  let ctxDead = false;   // 经验证的真失效（扩展被重载/禁用）
 
-  // 断连检测：扩展重载/更新/禁用时 Chrome 主动断开该 port —— 这是 content
-  // script 侧唯一可靠的上下文失效信号，早于任何 chrome.* API 抛错。
-  (function keepalive() {
+  /** 真失效：标记 + 状态提示 + 禁用按钮（幂等） */
+  function markCtxDead() {
+    if (ctxDead) return;
+    ctxDead = true;
+    const st = document.getElementById('se-status');
+    if (st) st.textContent = '⚠️ 扩展已重载或更新，请刷新本页（当前页面的扩展已失效）';
+    const btn = document.getElementById('se-start-btn');
+    if (btn) btn.disabled = true;
+  }
+
+  /**
+   * 断连检测（MV3 关键坑）：静默 keepalive port 会随 service worker 空闲停机
+   * （~30s）而断开——这不等于扩展失效，直接判死会误禁用按钮（提取成功后再点
+   * 「开始提取」无反应）。断开时先用一次轻量 API 往返定性：
+   *   - 同步抛 context invalidated / lastError → 真失效 → markCtxDead()
+   *   - 正常回调 → 仅 SW 停机 → 退避后静默重连（重连即唤醒 SW，不碰 UI）
+   */
+  function connectKeepalive() {
+    let port;
     try {
       if (typeof chrome === 'undefined' || !chrome.runtime
         || typeof chrome.runtime.connect !== 'function') return;
-      const port = chrome.runtime.connect({ name: 'vsr-keepalive' });
-      port.onDisconnect.addListener(() => {
-        ctxDead = true;
-        const st = document.getElementById('se-status');
-        if (st) st.textContent = '⚠️ 扩展已重载或更新，请刷新本页（当前页面的扩展已失效）';
-        const btn = document.getElementById('se-start-btn');
-        if (btn) btn.disabled = true;
-      });
-    } catch (e) { /* stub/旧环境无 port：忽略 */ }
-  })();
+      port = chrome.runtime.connect({ name: 'vsr-keepalive' });
+    } catch (e) { markCtxDead(); return; }
+    port.onDisconnect.addListener(() => {
+      if (ctxDead) return;
+      const verify = () => {
+        try {
+          if (typeof chrome.runtime.getPlatformInfo !== 'function') {
+            setTimeout(reconnect, 1000);   // stub 环境：静默重连
+            return;
+          }
+          chrome.runtime.getPlatformInfo(() => {
+            if (chrome.runtime.lastError) { markCtxDead(); return; }
+            setTimeout(reconnect, 1000);   // 扩展健在：SW 停机误断，静默重连
+          });
+        } catch (e2) { markCtxDead(); }    // 同步抛 = 上下文已死
+      };
+      const reconnect = () => {
+        if (ctxDead) return;
+        connectKeepalive();
+      };
+      verify();
+    });
+  }
+  connectKeepalive();
 
   /** chrome.* 抛「Extension context invalidated」时转成可读错误 */
   function ctxErr(e) {
@@ -248,8 +278,12 @@
   }
 
   async function startExtract() {
-    if (polling) return;
+    if (polling) {
+      setStatus('⏳ 上一次提取仍在进行中…');
+      return;
+    }
     removeGrantBtn();
+    setStatus('准备开始…');   // 首个 await 之前的即时反馈（任何异常都有前置状态）
     try {
       const cfg = await getCfg();
       document.getElementById('se-result').classList.remove('se-visible');
