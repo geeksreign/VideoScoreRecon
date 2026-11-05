@@ -6,8 +6,12 @@
 //   ② 兜底：直调 B 站 playurl API（port 自 src/video_scrap/bili/api.py，
 //      游客/环境 cookie 自动携带，credentials:include）
 //
-// fetch 都在页面源（bilibili.com）发起：浏览器自动带 Referer/cookie，
-// 且扩展有 host_permissions 时 content script 请求免 CORS。
+// 下载分三层（fetchWithProgress）：
+//   ① 页面源 fetch credentials:include —— 自带 Referer/cookie（首选）
+//   ② 页面源 fetch credentials:omit  —— 绕过 CDN ACAO:* 与凭据冲突的 CORS 拒绝
+//   ③ background SW 端口流式下载     —— 扩展源豁免 CORS/混合内容（最后兜底）
+// 页面源 fetch 在 bilibili.com 发起：浏览器自动带 Referer/cookie；
+// 是否免 CORS 取决于扩展 host_permissions 与 CDN 响应头，故保留三层兜底。
 window.VSRAcquire = (function () {
   const API_VIEW = 'https://api.bilibili.com/x/web-interface/view';
   const API_PLAYURL = 'https://api.bilibili.com/x/player/playurl';
@@ -74,39 +78,117 @@ window.VSRAcquire = (function () {
     return whole.slice().reverse();
   }
 
+  /** 读 Response 流为 ArrayBuffer（带进度） */
+  async function readToBuffer(r, onProgress) {
+    const total = parseInt(r.headers.get('Content-Length') || '0', 10);
+    const reader = r.body.getReader();
+    const chunks = [];
+    let done = 0;
+    for (;;) {
+      const { value, done: d } = await reader.read();
+      if (d) break;
+      chunks.push(value);
+      done += value.length;
+      if (onProgress && total) onProgress(done / total, `下载 ${mb(done)}/${mb(total)}`);
+    }
+    if (done === 0) throw new Error('空响应');
+    const buf = new Uint8Array(done);
+    let o = 0;
+    for (const c of chunks) { buf.set(c, o); o += c.length; }
+    return buf.buffer;
+  }
+
+  /** 层层①/②：页面源 fetch。cred=带凭据（含 Referer），nocred=免凭据（绕 ACAO:* 冲突） */
+  async function pageFetchDownload(url, withCred, onProgress) {
+    const r = await fetch(url, withCred ? { credentials: 'include' } : { credentials: 'omit' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.body) throw new Error('无响应体');
+    return readToBuffer(r, onProgress);
+  }
+
   /**
-   * 带进度的流式下载
+   * 层③：background service worker 端口流式下载（扩展源豁免 CORS/混合内容）。
+   * SW 无法设 Referer，故仅作前两层失败后的兜底。
+   */
+  function swDownload(url, onProgress) {
+    return new Promise((resolve, reject) => {
+      let port;
+      try {
+        if (typeof chrome === 'undefined' || !chrome.runtime
+          || typeof chrome.runtime.connect !== 'function') {
+          throw new Error('无 background 通道');
+        }
+        port = chrome.runtime.connect({ name: 'vsr-download' });
+      } catch (e) { reject(e); return; }
+
+      const chunks = [];
+      let done = 0, settled = false;
+      let timer = null;
+      const settle = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { port.disconnect(); } catch (e) { /* ignore */ }
+        fn(arg);
+      };
+      // 断流保护：60s 无任何消息即判失败（chunk 持续到来会不断重置）
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => settle(reject, new Error('background 下载超时(60s无数据)')), 60000);
+      };
+      arm();
+
+      port.onMessage.addListener((m) => {
+        arm();
+        if (m.type === 'progress') {
+          if (onProgress && m.total) {
+            onProgress(m.done / m.total, `下载 ${mb(m.done)}/${mb(m.total)}`);
+          }
+        } else if (m.type === 'chunk') {
+          const u = new Uint8Array(m.buf);
+          chunks.push(u);
+          done += u.length;
+        } else if (m.type === 'done') {
+          if (!done) { settle(reject, new Error('空响应')); return; }
+          const buf = new Uint8Array(done);
+          let o = 0;
+          for (const c of chunks) { buf.set(c, o); o += c.length; }
+          settle(resolve, buf.buffer);
+        } else if (m.type === 'error') {
+          settle(reject, new Error(m.message || 'background 下载失败'));
+        }
+      });
+      port.onDisconnect.addListener(() => {
+        const err = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError)
+          || {};
+        settle(reject, new Error(err.message || 'background 断开'));
+      });
+      port.postMessage({ type: 'fetch', url });
+    });
+  }
+
+  /**
+   * 带进度的分层下载：每个 URL 依次 cred → nocred → background SW，全败换下一源
    * @param {string[]} urls 按序尝试的源
    * @param {(p:number,m:string)=>void} onProgress download 进度回调
    * @returns {Promise<{buffer:ArrayBuffer, url:string}>}
    */
   async function fetchWithProgress(urls, onProgress) {
-    let lastErr = null;
+    const errs = [];
     for (const url of urls) {
-      try {
-        const r = await fetch(url, { credentials: 'include' });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const total = parseInt(r.headers.get('Content-Length') || '0', 10);
-        const reader = r.body.getReader();
-        const chunks = [];
-        let done = 0;
-        for (;;) {
-          const { value, done: d } = await reader.read();
-          if (d) break;
-          chunks.push(value);
-          done += value.length;
-          if (onProgress && total) onProgress(done / total, `下载 ${mb(done)}/${mb(total)}`);
+      for (const mode of ['cred', 'nocred', 'sw']) {
+        try {
+          const buffer = mode === 'sw'
+            ? await swDownload(url, onProgress)
+            : await pageFetchDownload(url, mode === 'cred', onProgress);
+          return { buffer, url };
+        } catch (e) {
+          // 逐层记录 <host|层>: <原因>，便于定位缺权限/被拒的具体 CDN 域与成因
+          errs.push(`[${hostOf(url)}|${mode}] ${e && e.message || e}`);
         }
-        const buf = new Uint8Array(done);
-        let o = 0;
-        for (const c of chunks) { buf.set(c, o); o += c.length; }
-        if (done === 0) throw new Error('空响应');
-        return { buffer: buf.buffer, url };
-      } catch (e) {
-        lastErr = e;
       }
     }
-    throw new Error('所有下载源均失败: ' + (lastErr && lastErr.message));
+    throw new Error('所有下载源均失败: ' + errs.join(' | '));
   }
 
   function mb(n) {
@@ -134,10 +216,10 @@ window.VSRAcquire = (function () {
     const info = await getVideoInfo(bvid, page);
     report('download', 0.06, `视频: ${info.part || info.title}`);
     const { urls, quality, width, height } = await getPlayUrl(bvid, info.cid);
-    report('download', 0.08, `画质 ${quality}p ${width}x${height}`);
+    report('download', 0.08, `画质 ${height}p ${width}x${height}`);
     const { buffer, url } = await fetchWithProgress(urls, (p, m) =>
       report('download', 0.08 + p * 0.9, m));
-    return { buffer, channel: 'playurl', label: `${quality}p ${hostOf(url)}` };
+    return { buffer, channel: 'playurl', label: `${height}p ${hostOf(url)}` };
   }
 
   function hostOf(u) {

@@ -17,3 +17,7 @@ data/
 node_modules/
 .browsers/
 extension/dist/
+
+# 扩展打包产物（含私钥，勿入库）
+extension.crx
+extension.pem

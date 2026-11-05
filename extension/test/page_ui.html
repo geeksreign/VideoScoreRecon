@@ -16,6 +16,18 @@ window.chrome = {
   runtime: {
     // 测试页与 worker 同源（127.0.0.1 server），直接给同源绝对路径
     getURL: (p) => '/extension/' + p,
+    lastError: undefined,
+    // keepalive port 桩（content 启动时连接，测试页无扩展生命周期）
+    connect: () => ({
+      onDisconnect: { addListener() {} },
+      onMessage: { addListener() {} },
+      postMessage() {},
+      disconnect() {},
+    }),
+  },
+  permissions: {
+    request: () => Promise.resolve(true),
+    contains: () => Promise.resolve(true),
   },
 };
 </script>

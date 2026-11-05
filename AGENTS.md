@@ -8,6 +8,7 @@ Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical s
 - `python src/main.py --video <路径或B站URL> [--data-dir data] ...` — CLI pipeline (URL download → extract → crop → dedup → stitch). `--video` is required. Both `src/main.py` and `src/pipeline.py` insert `src/videocore` and `src/video_scrap/bili` into `sys.path`, so they run from any CWD.
 - `cd src && python -m server` — starts the local FastAPI service (http://127.0.0.1:8000) for the browser extension. Prints a per-run `Token` on startup; all `/api/*` except `/api/health` require `X-Auth-Token`. Env: `SCORE_SERVER_TOKEN` to pin the token, `SCORE_DATA_DIR` for the data root.
 - Browser extension lives in `extension/` (MV3). Load unpacked via `chrome://extensions` (developer mode). Point it at the local service + paste the token in its options page; `content.js` runs on `https://www.bilibili.com/video/*`.
+- Extension tests (from `extension/`, needs `npm i`): `npm run test` (算法对齐 runner，与 Python fixture 逐帧哈希对比), `npm run test:acquire` (下载三层兜底单测), `npm run test:ui` (content 全链 UI 集成), `npm run test:smoke` (真站端到端，依赖 `.browsers/` 的 Chrome for Testing 124；`NO_EXTRACT=1` 只测注入, `SMOKE_BV=<BV>` 换视频)。
 
 ## Architecture
 - `src/pipeline.py::run_pipeline(video_input, data_dir, ..., on_progress)` — shared orchestration used by both the CLI (`src/main.py`) and the server (`src/server/jobs.py`). `on_progress(stage, progress, message)` with stages `download/extract/stitch/done`; `video_io.extract_and_crop` reports progress via the same callback (throttled ~1%).
@@ -23,3 +24,7 @@ Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical s
 - Code comments are in Chinese.
 - `test_pic_exp.py` is an image-only crop test (uses `data/pic_exp/`, outputs to `data/pic_exp_out/`), independent of the video pipeline.
 - `tests/` holds pytest tests (auto-discovered); `test/` holds manual utility scripts (`comp_similar_pics.py` reuses `videocore/dedup.py` core, so both share one dedup implementation).
+- 扩展：页面源 content script `new Worker('chrome-extension://...')` 必抛 SecurityError（WAR 只放行 fetch），流水线 worker 经隐藏 iframe `worker_host.html`（扩展源）中转构造。
+- 扩展：MV3 禁 `unsafe-eval`。`lib/opencv.js`（Emscripten/embind）已手工打 4 处无 eval 补丁：`createNamedFunction`、dynCall 蹦床、`craftInvokerFunction`（eval-free invoker 主路径）、`__emval_get_method_caller`——**升级/替换 opencv.js 必须重打**。manifest `content_security_policy.extension_pages` 必须是 `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`（worker.js 响应头继承该值，缺 wasm 会拒绝编译；加 `'inline-speculation-rules'`/`localhost` 等源 Chrome 拒载 manifest）。
+- 扩展：B 站碎片 `.m4s` 的 mvhd duration 可能为 0 → `worker.js` onMeta 用 `nbSamples/fps` 回推；解码进度心跳走 decode.js `onProgress`（抽帧 tick 的 `totalFrames` 依赖它）。下载分三层 `cred→nocred→background SW`（`acquire.js::fetchWithProgress`），全败后面板出「授权全网访问并重试」按钮（optional `*://*/*`）。
+- `extension/.browsers/` 的 Chrome for Testing 124 若二进制只有 136KB/无 Frameworks 即下载残缺（`npx @puppeteer/browsers install` 解压有 bug）：`unzip -q .browsers/chrome/<ver>-chrome-mac-x64.zip -d .browsers/chrome/mac-<ver>` 手动解压。smoke 默认 `SMOKE_BV=BV1jW41117JQ`（真实动态谱视频；Rickroll MV 检测必然 0 检出）。

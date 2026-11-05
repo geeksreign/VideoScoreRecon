@@ -13,7 +13,8 @@ const CFT124 = path.join(EXT,
   '.browsers/chrome/mac-124.0.6367.207/chrome-mac-x64',
   'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
 const CHROME = process.env.CHROME_PATH || CFT124;
-const BV = process.env.SMOKE_BV || 'BV1GJ411x7h7';
+// 默认用含滚动乐谱的视频（动态谱）：rickroll MV 检测必然 0 检出，曾误导排障
+const BV = process.env.SMOKE_BV || 'BV1jW41117JQ';
 
 const t0 = Date.now();
 const stamp = () => `[t+${((Date.now() - t0) / 1000).toFixed(0)}s]`;
@@ -31,7 +32,7 @@ const browser = await puppeteer.launch({
 console.log(stamp(), '扩展已加载:', EXT, 'chrome=', CHROME);
 
 const page = await browser.newPage();
-page.on('pageerror', e => console.error(stamp(), '[pageerror]', e.message));
+page.on('pageerror', e => console.error(stamp(), '[pageerror]', (e && e.message) || String(e)));
 page.on('console', m => { const t = m.text(); if (!/Download the React|favicon/.test(t)) console.log(stamp(), '[console]', t.slice(0, 200)); });
 
 let exitCode = 1;
@@ -63,7 +64,7 @@ try {
     await page.waitForFunction(
       () => {
         const s = (document.getElementById('se-status') || {}).textContent || '';
-        return s.startsWith('✅ 完成') || s.startsWith('❌ 失败');
+        return s.startsWith('✅ 完成') || s.startsWith('❌');
       },
       { timeout: 600000, polling: 1000 });
     const finalStatus = await page.$eval('#se-status', el => el.textContent);
@@ -86,6 +87,8 @@ try {
   }
 } catch (e) {
   console.error(stamp(), 'SMOKE FAIL:', e.message);
+  const st = await page.$eval('#se-status', el => el.textContent).catch(() => '?');
+  console.error(stamp(), '超时时面板状态:', JSON.stringify(st));
 } finally {
   await browser.close().catch(() => {});
   setTimeout(() => process.exit(exitCode), 500).unref();

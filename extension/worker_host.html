@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VSR worker host</title></head>
+<body>
+<!-- 隐藏宿主：content script（页面源）直接 new Worker(chrome-extension://) 被同源策略拒绝，
+     故经本页（扩展源）中转构造 worker。父页 postMessage 通信，见 worker_host.js -->
+<script src="worker_host.js"></script>
+</body>
+</html>

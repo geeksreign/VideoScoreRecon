@@ -6,16 +6,90 @@
 (() => {
   const DEFAULT_BASE = '';   // '' = 本地模式
 
-  function getCfg() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(['baseUrl', 'token', 'cookie'], (cfg) => {
-        resolve({
-          baseUrl: (cfg.baseUrl || DEFAULT_BASE).trim(),
-          token: cfg.token || '',
-          cookie: cfg.cookie || '',
-        });
+  let ctxDead = false;   // 扩展被重载/禁用后为 true（keepalive port 断开）
+
+  // 断连检测：扩展重载/更新/禁用时 Chrome 主动断开该 port —— 这是 content
+  // script 侧唯一可靠的上下文失效信号，早于任何 chrome.* API 抛错。
+  (function keepalive() {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime
+        || typeof chrome.runtime.connect !== 'function') return;
+      const port = chrome.runtime.connect({ name: 'vsr-keepalive' });
+      port.onDisconnect.addListener(() => {
+        ctxDead = true;
+        const st = document.getElementById('se-status');
+        if (st) st.textContent = '⚠️ 扩展已重载或更新，请刷新本页（当前页面的扩展已失效）';
+        const btn = document.getElementById('se-start-btn');
+        if (btn) btn.disabled = true;
       });
+    } catch (e) { /* stub/旧环境无 port：忽略 */ }
+  })();
+
+  /** chrome.* 抛「Extension context invalidated」时转成可读错误 */
+  function ctxErr(e) {
+    const m = (e && e.message) || String(e);
+    if (/context invalidated/i.test(m) || ctxDead) {
+      return new Error('扩展上下文已失效，请刷新本页（扩展可能刚被重载/更新）');
+    }
+    return e instanceof Error ? e : new Error(m);
+  }
+
+  function getCfg() {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.storage.local.get(['baseUrl', 'token', 'cookie'], (cfg) => {
+          const err = chrome.runtime.lastError;
+          if (err) { reject(ctxErr(new Error(err.message))); return; }
+          resolve({
+            baseUrl: (cfg.baseUrl || DEFAULT_BASE).trim(),
+            token: cfg.token || '',
+            cookie: cfg.cookie || '',
+          });
+        });
+      } catch (e) { reject(ctxErr(e)); }
     });
+  }
+
+  // ---------- 可选宽权限（optional_host_permissions *://*/*）----------
+  // 平时不申请；仅当下载全部失败且未持全网权限时，面板出「授权并重试」按钮。
+  // chrome.permissions.request 必须在用户手势栈内同步调用（按钮 click 首段）。
+  const BROAD = { origins: ['*://*/*'] };
+
+  function hasPermApi() {
+    return typeof chrome !== 'undefined' && chrome.permissions
+      && typeof chrome.permissions.request === 'function'
+      && typeof chrome.permissions.contains === 'function';
+  }
+
+  function removeGrantBtn() {
+    const b = document.getElementById('se-grant-btn');
+    if (b) b.remove();
+  }
+
+  /** @returns {Promise<boolean>} 是否展示了授权重试按钮 */
+  async function offerGrantRetry() {
+    if (!hasPermApi()) return false;
+    let granted = false;
+    try { granted = await chrome.permissions.contains(BROAD); } catch (e) { /* ignore */ }
+    if (granted) return false;
+    if (document.getElementById('se-grant-btn')) return true;
+    const btn = document.createElement('button');
+    btn.id = 'se-grant-btn';
+    btn.textContent = '🔓 授权全网访问并重试';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      let ok = false;
+      try { ok = await chrome.permissions.request(BROAD); } catch (e) { /* ignore */ }
+      removeGrantBtn();
+      if (ok) {
+        setStatus('已授权，重新开始…');
+        startExtract();
+      } else {
+        setStatus('未授权：仍只能访问已授权的 CDN 域名，可修改设置页授权后重试');
+      }
+    });
+    document.querySelector('#score-ext-panel .se-actions').appendChild(btn);
+    return true;
   }
 
   async function api(path, opts = {}) {
@@ -106,8 +180,10 @@
 
     panel.querySelector('#se-start-btn').addEventListener('click', startExtract);
     panel.querySelector('#se-close-btn').addEventListener('click', togglePanel);
-    getCfg().then((cfg) => { panel.querySelector('#se-cookie').value = cfg.cookie || ''; });
-    checkHealth();
+    getCfg()
+      .then((cfg) => { panel.querySelector('#se-cookie').value = cfg.cookie || ''; })
+      .catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
+    checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
   }
 
   function togglePanel() {
@@ -115,7 +191,7 @@
     const open = panel.classList.toggle('se-open');
     if (open) {
       panel.querySelector('#se-url').value = location.href;
-      checkHealth();
+      checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
     }
   }
 
@@ -151,32 +227,105 @@
 
   async function startExtract() {
     if (polling) return;
-    const cfg = await getCfg();
-    document.getElementById('se-result').classList.remove('se-visible');
-    releaseResultUrls();
-    document.getElementById('se-downloads').innerHTML = '';
-    if (!cfg.baseUrl) {
-      await localExtract();
-      return;
+    removeGrantBtn();
+    try {
+      const cfg = await getCfg();
+      document.getElementById('se-result').classList.remove('se-visible');
+      releaseResultUrls();
+      document.getElementById('se-downloads').innerHTML = '';
+      if (!cfg.baseUrl) {
+        await localExtract();
+        return;
+      }
+      // ---- 高级 HTTP 模式（老流程）----
+      const p = document.getElementById('score-ext-panel');
+      const payload = {
+        url: location.href,
+        start_time: parseTime(p.querySelector('#se-start').value),
+        end_time: parseTime(p.querySelector('#se-end').value),
+        interval_sec: num(p.querySelector('#se-interval').value, 2.5),
+        dedup_threshold: num(p.querySelector('#se-thresh').value, 0.01),
+        cookie: p.querySelector('#se-cookie').value.trim() || undefined,
+      };
+      setStatus('提交任务...');
+      const r = await api('/api/extract', { method: 'POST', body: JSON.stringify(payload) });
+      if (!r.ok) {
+        setStatus(`提交失败 (${r.status}): ${(r.data && r.data.detail) || '未知错误'}`);
+        return;
+      }
+      setStatus(`已提交，任务 ${r.data.job_id}`);
+      poll(r.data.job_id).catch((e) => setStatus('❌ 失败: ' + ctxErr(e).message));
+    } catch (e) {
+      // chrome.* API 在扩展被重载后会抛 Extension context invalidated
+      setProgress('error', 0, '');
+      setStatus('❌ 失败: ' + ctxErr(e).message);
     }
-    // ---- 高级 HTTP 模式（老流程）----
-    const p = document.getElementById('score-ext-panel');
-    const payload = {
-      url: location.href,
-      start_time: parseTime(p.querySelector('#se-start').value),
-      end_time: parseTime(p.querySelector('#se-end').value),
-      interval_sec: num(p.querySelector('#se-interval').value, 2.5),
-      dedup_threshold: num(p.querySelector('#se-thresh').value, 0.01),
-      cookie: p.querySelector('#se-cookie').value.trim() || undefined,
-    };
-    setStatus('提交任务...');
-    const r = await api('/api/extract', { method: 'POST', body: JSON.stringify(payload) });
-    if (!r.ok) {
-      setStatus(`提交失败 (${r.status}): ${(r.data && r.data.detail) || '未知错误'}`);
-      return;
-    }
-    setStatus(`已提交，任务 ${r.data.job_id}`);
-    poll(r.data.job_id);
+  }
+
+  /**
+   * 在隐藏扩展 iframe（worker_host.html，扩展源）里跑流水线 worker。
+   * 页面源 content script 直接 new Worker('chrome-extension://...') 会被同源策略拒绝
+   * （SecurityError），故经 iframe 中转：content → iframe → worker，消息原路回传。
+   * @param {ArrayBuffer} buffer 视频字节（转移给 iframe）
+   * @param {object} params 流水线参数
+   * @param {(m:object)=>void} onProgressMsg progress 消息回调
+   * @returns {Promise<object>} worker done 消息
+   */
+  function runWorker(buffer, params, onProgressMsg) {
+    return new Promise((resolve, reject) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'display:none;width:0;height:0;border:0';
+      iframe.src = chrome.runtime.getURL('worker_host.html');
+      let settled = false;
+      const timer = setTimeout(() => finish(reject, new Error('处理超时(10分钟)')), 600000);
+      // 看门狗：首条消息前放宽到 240s（iframe 加载 + worker 启动 + opencv/wasm
+      // 冷启动，高负载环境可慢至数分钟）；之后 60s 无消息即判死
+      let idle = null;
+      let gotMsg = false;
+      const armIdle = () => {
+        clearTimeout(idle);
+        const limit = gotMsg ? 60000 : 240000;
+        idle = setTimeout(() => finish(reject,
+          new Error(`worker ${limit / 1000}秒无响应（可能初始化失败）`)), limit);
+      };
+      armIdle();
+      function finish(fn, arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(idle);
+        window.removeEventListener('message', onMsg);
+        iframe.remove();
+        fn(arg);
+      }
+      function onMsg(e) {
+        if (e.source !== iframe.contentWindow) return;
+        gotMsg = true;
+        armIdle();
+        const m = e.data || {};
+        if (m.type === 'debugimg') {
+          // 诊断帧（排查检测问题）：isolated world 的 window 主世界读不到，
+          // 挂到共享 DOM 供测试脚本取用
+          const el = document.createElement('img');
+          el.setAttribute('data-vsr-dbg', String(m.i));
+          el.src = m.dataUrl;
+          el.style.display = 'none';
+          document.documentElement.appendChild(el);
+        }
+        if (m.type === 'progress') onProgressMsg(m);
+        else if (m.type === 'done') finish(resolve, m);
+        else if (m.type === 'error') finish(reject, new Error(m.message || 'worker 错误'));
+      }
+      window.addEventListener('message', onMsg);
+      iframe.addEventListener('error', () =>
+        finish(reject, new Error('worker 宿主页加载失败')));
+      iframe.addEventListener('load', () => {
+        console.log('[vsr] iframe load, sending run');
+        iframe.contentWindow.postMessage({ cmd: 'run', buffer, params }, '*', [buffer]);
+      });
+      console.log('[vsr] iframe appended');
+      document.body.appendChild(iframe);
+    });
   }
 
   // ---------- 本地模式 ----------
@@ -195,28 +344,21 @@
         setProgress(stage, prog, msg));
       setProgress('download', 1, `视频就绪（${acq.channel}: ${acq.label}）`);
 
-      const worker = new Worker(chrome.runtime.getURL('src/worker.js'));
-      const result = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('处理超时(10分钟)')), 600000);
-        worker.onmessage = (e) => {
-          const m = e.data;
-          if (m.type === 'progress') setProgress(m.stage, m.progress, m.message);
-          else if (m.type === 'done') { clearTimeout(timer); resolve(m); }
-          else if (m.type === 'error') { clearTimeout(timer); reject(new Error(m.message)); }
-        };
-        worker.onerror = (e) => {
-          clearTimeout(timer);
-          reject(new Error(`worker: ${e.message || e}`));
-        };
-        worker.postMessage(
-          { cmd: 'run', buffer: acq.buffer, params },
-          [acq.buffer]);
-      });
-      worker.terminate();
+      const result = await runWorker(acq.buffer, params, (m) =>
+        setProgress(m.stage, m.progress, m.message));
       showLocalResult(result, params);
     } catch (e) {
       setProgress('error', 0, '');
-      setStatus(`❌ 失败: ${e && e.message || e}`);
+      const msg = ctxErr(e).message;
+      let hint = '';
+      if (msg.includes('所有下载源均失败')) {
+        if (await offerGrantRetry()) {
+          hint = '\n可点下方「🔓 授权全网访问并重试」';
+        } else if (!hasPermApi()) {
+          hint = '\n提示：可在扩展设置页授权「全网访问」后重试';
+        }
+      }
+      setStatus(`❌ 失败: ${msg}${hint}`);
     } finally {
       polling = false;
     }

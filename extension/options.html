@@ -38,6 +38,13 @@
     本地 Python 服务模式说明：在项目目录执行 <code>cd src && uv run python -m server</code>，
     把终端打印的 Token 填到上方。此模式由 Python/OpenCV 处理，适合开发者调试流水线。
   </div>
+
+  <h2>下载失败时：授权全网访问（可选）</h2>
+  <div class="hint">
+    仅当视频下载全部失败（提示「所有下载源均失败」）才需要：授予后扩展可访问任意 CDN 域名，
+    绕过跨域/混合内容限制。平时不需要，也不会弹窗。
+  </div>
+  <button id="grant" style="background:#00aeec">🔓 授权全网访问</button>
   <script src="options.js"></script>
 </body>
 </html>

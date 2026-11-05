@@ -6,9 +6,12 @@
 //   ← {type:'progress', stage, progress, message}
 //   ← {type:'done', segments:[{buffer,width,height,from,to}], meta, saved, skipped}
 //   ← {type:'error', message}
+console.log('[vsr] worker script start');
+importScripts('../lib/opencv.js');
+console.log('[vsr] imp opencv done');
+importScripts('../lib/mp4box.all.min.js');
+console.log('[vsr] imp mp4box done');
 importScripts(
-  '../lib/opencv.js',
-  '../lib/mp4box.all.min.js',
   'pipeline/constants.js',
   'pipeline/phasecorr.js',
   'pipeline/pic_clip.js',
@@ -17,6 +20,10 @@ importScripts(
   'decode.js',
   'stitch.js'
 );
+console.log('[vsr] imp rest done');
+
+console.log('[vsr] scripts loaded; cv=' + typeof cv + ' cvThen=' +
+  (typeof cv !== 'undefined' && cv && typeof cv.then === 'function'));
 
 // cv 是 Emscripten thenable：其 .then 返回值不可链，Promise.resolve/race 的
 // assimilation 会引发微任务风暴。安全模式 = 单次 .then 进入，后续走原生链。
@@ -33,6 +40,18 @@ function post(msg, transfer) {
   self.postMessage(msg, transfer || []);
 }
 
+// 全局兜底：promise 内的异步异常不会触发外部 worker.onerror，
+// 只发 unhandledrejection/error 到本 worker —— 在此转成 error 消息并带栈定位
+self.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  const detail = (r && (r.stack || r.message)) || String(r);
+  post({ type: 'error', message: 'unhandledrejection: ' + detail });
+});
+self.addEventListener('error', (e) => {
+  const where = e.filename ? ` @${String(e.filename).slice(-90)}:${e.lineno}:${e.colno}` : '';
+  post({ type: 'error', message: (e.message || 'worker error') + where });
+});
+
 function progress(stage, p, message) {
   post({ type: 'progress', stage, progress: p, message: message || '' });
 }
@@ -47,6 +66,7 @@ async function run(buffer, params) {
   let meta = null;
   let pastEnd = false;
   let dbgSent = false;
+  let dbgMidDone = false;
 
   const dedup = new VSR.ImageDedup(dedupThreshold);
   const stitcher = new VSR.Stitcher();
@@ -72,6 +92,11 @@ async function run(buffer, params) {
 
   const result = await VSR.decodeVideo(buffer, {
     onMeta: (m) => {
+      // 碎片 mp4（B 站 .m4s）mvhd duration 常为 0：用 nbSamples/fps 回推，
+      // 保证 totalFrames/endTime 语义与 Python（imageio 逐帧计数）一致
+      if (!(m.durationSec > 0) && m.nbSamples > 0 && m.fps > 0) {
+        m.durationSec = m.nbSamples / m.fps;
+      }
       meta = m;
       sampleStep = sampleStepFor(m.fps);
       startFrame = params.startTime !== undefined && params.startTime !== null
@@ -84,6 +109,8 @@ async function run(buffer, params) {
         }
       }
       totalFrames = Math.round(m.durationSec * m.fps);
+      console.log('[vsr] meta dur=' + m.durationSec + ' nb=' + m.nbSamples +
+        ' fps=' + m.fps + ' totalFrames=' + totalFrames);
       if (endFrame !== null && startFrame >= endFrame) {
         throw new Error(`截取区间非法: start=${startFrame} >= end=${endFrame}`);
       }
@@ -107,10 +134,12 @@ async function run(buffer, params) {
     shouldStop: () => cancelRequested || pastEnd,
 
     onSample: async (frame, i) => {
+      if (i === 0) console.log('[vsr] onSample(0) enter');
       if (cancelRequested) { frame.close(); return; }
       const disp = [frame.displayWidth, frame.displayHeight];
       const coded = [frame.codedWidth, frame.codedHeight];
       const bmp = await createImageBitmap(frame);
+      if (i === 0) console.log('[vsr] onSample(0) bitmap done');
       frame.close();
       // 栅格化尺寸对齐 track meta（Python imageio 输出口径）：本视频 SPS 显示
       // 853 而 tkhd 为 852，两解码栈差 1px——以 meta 为准，源裁剪不重采样。
@@ -124,6 +153,23 @@ async function run(buffer, params) {
       ctx.drawImage(bmp, 0, 0, sw, sh, 0, 0, gw, gh);
       bmp.close();
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (i === 0) console.log('[vsr] onSample(0) getImageData done');
+      // 诊断图：帧0 + 过半首个抽帧 → dataURL 发宿主（排查 rect 全 null 用）
+      const wantImg = i === 0
+        || (i !== 0 && !dbgMidDone && meta && i >= meta.nbSamples / 2);
+      if (wantImg) {
+        if (i !== 0) dbgMidDone = true;
+        try {
+          const blob = await canvas.convertToBlob({ type: 'image/png' });
+          const dataUrl = await new Promise((res) => {
+            const fr = new FileReader();
+            fr.onload = () => res(fr.result);
+            fr.readAsDataURL(blob);
+          });
+          post({ type: 'debugimg', i, dataUrl });
+          console.log('[vsr] debugimg frame i=' + i);
+        } catch (e) { console.log('[vsr] debugimg fail ' + e); }
+      }
       if (!dbgSent) {
         dbgSent = true;
         post({
@@ -143,14 +189,20 @@ async function run(buffer, params) {
       }
       const gray = new cv.Mat();
       cv.cvtColor(bgr, gray, cv.COLOR_BGR2GRAY);
+      if (i === 0) console.log('[vsr] onSample(0) cvtColor done');
       const rect = VSR.findScoreRect(gray);
       gray.delete();
+      if (i === 0) console.log('[vsr] onSample(0) findScoreRect done ' + JSON.stringify(rect));
       const crop = VSR.cropScore(bgr, rect);
+      if (i === 0) console.log('[vsr] onSample(0) cropScore done crop=' + (crop ? 'mat' : 'null'));
       bgr.delete();
+      if (i === 0) console.log('[vsr] onSample(0) bgr.delete done');
       if (crop) {
         const { isNew } = dedup.add(crop);
+        if (i === 0) console.log('[vsr] onSample(0) dedup done isNew=' + isNew);
         if (isNew) {
           await stitcher.add(crop, i);   // stitcher 内部 delete
+          if (i === 0) console.log('[vsr] onSample(0) stitch done');
           saved++;
           frameNos.push(i);
         } else {
@@ -159,9 +211,11 @@ async function run(buffer, params) {
         }
       }
       tick(i);
+      if (i === 0) console.log('[vsr] onSample(0) tick done');
     },
 
-    onProgress: () => {},   // 由 tick 节流上报
+    // decode.js 已按 ~1% 节流，直接作为解码期心跳进度（兜底 tick 漏报）
+    onProgress: (i, nb) => progress('extract', Math.min(1, i / nb), `解码 ${i}/${nb}`),
   });
 
   dedup.dispose();
@@ -200,7 +254,9 @@ self.onmessage = (e) => {
     return;
   }
   if (msg.cmd === 'run') {
+    console.log('[vsr] run cmd received');
     whenCvReady((cv) => {
+      console.log('[vsr] cv ready, starting pipeline');
       Promise.resolve().then(() => {
         if (!cv || !cv.Mat) throw new Error('OpenCV.js 初始化失败');
         return run(msg.buffer, msg.params || {});

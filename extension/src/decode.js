@@ -177,15 +177,18 @@ self.VSR = self.VSR || {};
 
     const decoder = new VideoDecoder({
       output: (frame) => {
+        if (index === 0) console.log('[vsr] first frame out');
         if (decodeErr || (h.shouldStop && h.shouldStop())) { frame.close(); return; }
         const i = index++;
         if (h.shouldSample && !h.shouldSample(i)) { frame.close(); return; }
         pending.push({ frame, i });
         wakeAll();
       },
-      error: (e) => { decodeErr = e; wakeAll(); },
+      error: (e) => { console.log('[vsr] decoder error: ' + e); decodeErr = e; wakeAll(); },
     });
     if (!meta.codec) throw new Error('mp4box: 无法获取视频 codec 字符串');
+    console.log('[vsr] decoder cfg codec=' + meta.codec + ' desc=' +
+      (meta.description ? meta.description.length : 'null') + ' ' + meta.width + 'x' + meta.height);
     decoder.configure({
       codec: meta.codec,
       // AVC 格式 H.264 必须带 avcC description（AVCDecoderConfigurationRecord）
@@ -247,8 +250,10 @@ self.VSR = self.VSR || {};
         decoder.decode(chunk);
         await waitNotFull();
       }
+      console.log('[vsr] feed done, flushing; queue=' + decoder.decodeQueueSize);
       if (!decodeErr && !(h.shouldStop && h.shouldStop())) {
         await decoder.flush();
+        console.log('[vsr] flush done');
       }
     } finally {
       try { if (decoder.state !== 'closed') decoder.close(); } catch (_) {}

@@ -19,7 +19,7 @@
   top: 170px;
   z-index: 2147483001;
   width: 340px;
-  max-height: 80vh;
+  max-height: calc(100vh - 190px);   /* 始终留出 top:170+边距，小视口不越界（内部滚动） */
   overflow-y: auto;
   background: #fff;
   border: 1px solid #e3e5e7;

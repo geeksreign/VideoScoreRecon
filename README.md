@@ -13,7 +13,7 @@
 ## 快速开始（Chrome 扩展，零配置）
 
 1. `chrome://extensions` → 打开「开发者模式」→「加载已解压的扩展程序」→ 选择本仓库的 `extension/` 目录
-2. 打开任意 B 站视频页（如 `https://www.bilibili.com/video/BV1GJ411x7h7/`），点击右下角 **「🎼 提取乐谱」**
+2. 打开任意 B 站视频页（如 `https://www.bilibili.com/video/BV1jW41117JQ/`），点击右下角 **「🎼 提取乐谱」**
 3. 填写时间范围（可空 = 全片），点「开始提取」→ 下载 → 抽帧 → 拼接 → 预览/下载 PNG
 
 > 若页面右下角没有按钮：在 `chrome://extensions` 找到本扩展 → 「站点访问权限」→ 勾选「在所有站点上」。

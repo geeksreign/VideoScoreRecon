@@ -4,13 +4,20 @@
   "version": "1.0.0",
   "description": "从 B 站视频页一键提取滚动乐谱并拼接为完整乐谱长图——全部处理在本机浏览器完成，不上传任何视频或 Cookie。",
   "permissions": ["storage"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
-    "https://*.bilivideo.com/*",
-    "https://*.akamaized.net/*",
+    "*://*.bilivideo.com/*",
+    "*://*.bilivideo.cn/*",
+    "*://*.mountaintoys.cn/*",
+    "*://*.akamaized.net/*",
+    "*://*.hdslb.com/*",
     "http://127.0.0.1:8000/*"
   ],
+  "optional_host_permissions": ["*://*/*"],
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "视频乐谱提取器设置",
@@ -38,7 +45,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/worker.js"],
+      "resources": ["worker_host.html", "src/worker.js"],
       "matches": ["https://*.bilibili.com/*"]
     }
   ]
