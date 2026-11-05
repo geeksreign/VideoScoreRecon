@@ -322,6 +322,28 @@
     -15.004202228023871,
     -14.998434605903611
    ]
+  },
+  {
+   "png": "phase_odd_852x167.png",
+   "roll": [
+    5,
+    3
+   ],
+   "expected": [
+    4.9965,
+    2.9905
+   ]
+  },
+  {
+   "png": "phase_odd_167x167.png",
+   "roll": [
+    -7,
+    11
+   ],
+   "expected": [
+    -6.9954,
+    10.9696
+   ]
   }
  ],
  "dedup_cases": [
@@ -361,6 +383,19 @@
     false,
     false,
     false
+   ]
+  }
+ ],
+ "phase_pair_cases": [
+  {
+   "pair": [
+    "phase_pad_a_852x167.png",
+    "phase_pad_b_852x170.png"
+   ],
+   "pad_to": 170,
+   "expected": [
+    -0.0029,
+    2.9866
    ]
   }
  ]

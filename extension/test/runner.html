@@ -174,6 +174,28 @@
         `got=(${r.dx.toFixed(3)},${r.dy.toFixed(3)}) exp=(${edx.toFixed(3)},${edy.toFixed(3)})`);
     }
 
+    // 3.5 phasePair：pad-shift 成对输入（奇数维 DFT + 白底 pad——fftShift 映射回归）
+    for (const c of (cases.phase_pair_cases || [])) {
+      console.log('SECTION phase_pair begin ' + c.pair.join('~'));
+      const ga = await loadGrayMat(c.pair[0]);
+      const gb = await loadGrayMat(c.pair[1]);
+      const H = c.pad_to, Wa = ga.cols;
+      // A 补白到 H 行（同 dedup._pad_to_common 语义），B 已是 H 行
+      const ref = new Float32Array(Wa * H).fill(255);
+      const mov = new Float32Array(Wa * gb.rows).fill(255);
+      const ba = grayArr(ga), bb = grayArr(gb);
+      for (let y = 0; y < ga.rows; y++)
+        for (let x = 0; x < Wa; x++) ref[y * Wa + x] = ba[y * Wa + x];
+      for (let y = 0; y < gb.rows; y++)
+        for (let x = 0; x < gb.cols; x++) mov[y * gb.cols + x] = bb[y * gb.cols + x];
+      ga.delete(); gb.delete();
+      const r = VSR.phaseCorrelate(ref, mov, Wa, H);
+      const [edx, edy] = c.expected;
+      const pass = Math.abs(r.dx - edx) <= 0.5 && Math.abs(r.dy - edy) <= 0.5;
+      record(`phasePair/${c.pair[0]}`, pass,
+        `got=(${r.dx.toFixed(3)},${r.dy.toFixed(3)}) exp=(${edx},${edy})`);
+    }
+
     // 5. scoresSame
     for (const c of cases.dedup_cases) {
       console.log('SECTION dedup_cases begin');

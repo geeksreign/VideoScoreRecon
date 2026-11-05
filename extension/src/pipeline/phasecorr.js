@@ -110,11 +110,14 @@ self.VSR = self.VSR || {};
     return win;
   }
 
-  // cv::fftShift 象限交换（2D 分支，含奇数维的 tmp 映射，逻辑照抄 phasecorr.cpp）
+  // cv::fftShift 象限交换：按 cx=cols>>1、cy=rows>>1 地板切四块，TL↔BR、TR↔BL。
+  // 全奇偶尺寸通吃。旧实现分奇偶两分支，其中“奇数维 tmp 映射”在 偶×奇（如
+  // 640×175、852×175）下近似恒等、相关峰原地不动 → dx/dy 落到中心偏移/负半区，
+  // 超 max_shift 后放弃对齐 → 去重对相邻同页判异、断链多保留帧（真实
+  // getOptimalDFTSize(170)=175 奇数样本首踩；parity 旧 fixture DFT 尺寸全偶从未覆盖）。
   function fftShiftReal(src, rows, cols) {
     const dst = new Float64Array(rows * cols);
-    const xMid = cols >> 1, yMid = rows >> 1;
-    const isXodd = (cols % 2) === 1, isYodd = (rows % 2) === 1;
+    const cx = cols >> 1, cy = rows >> 1;
     const blk = (r0, c0, hh, ww) => {
       const buf = new Float64Array(hh * ww);
       for (let y = 0; y < hh; y++)
@@ -125,28 +128,14 @@ self.VSR = self.VSR || {};
       for (let y = 0; y < hh; y++)
         for (let x = 0; x < ww; x++) dst[(r0 + y) * cols + (c0 + x)] = buf[y * ww + x];
     };
-    if (!isXodd && !isYodd) {
-      // 偶×偶：q0↔q3, q1↔q2
-      const q0 = blk(0, 0, yMid, xMid);
-      const q1 = blk(0, xMid, yMid, xMid);
-      const q2 = blk(yMid, 0, yMid, xMid);
-      const q3 = blk(yMid, xMid, yMid, xMid);
-      put(0, 0, yMid, xMid, q3);
-      put(yMid, xMid, yMid, xMid, q0);
-      put(0, xMid, yMid, xMid, q2);
-      put(yMid, 0, yMid, xMid, q1);
-    } else {
-      // 奇数维分支（tmp0..tmp3 映射，照抄 phasecorr.cpp else 分支）
-      const hwX = xMid + (isXodd ? 1 : 0), hwY = yMid + (isYodd ? 1 : 0);
-      const q0 = blk(0, 0, hwY, hwX);
-      const q1 = blk(0, hwX, yMid, xMid);
-      const q2 = blk(hwY, 0, yMid, hwX);
-      const q3 = blk(hwY, hwX, yMid, xMid);
-      put(yMid, xMid, hwY, hwX, q0);   // tmp0 → (xMid, yMid)
-      put(0, 0, yMid, xMid, q3);       // tmp3 → (0, 0)
-      put(0, xMid, yMid, hwX, q1);     // tmp1 → (xMid, 0)
-      put(hwY, 0, hwY, xMid, q2);      // tmp2 → (0, yMid)
-    }
+    const tl = blk(0, 0, cy, cx);
+    const tr = blk(0, cx, cy, cols - cx);
+    const br = blk(cy, cx, rows - cy, cols - cx);
+    const bl = blk(cy, 0, rows - cy, cx);
+    put(0, 0, cy, cx, br);                       // TL ↔ BR
+    put(cy, cx, rows - cy, cols - cx, tl);
+    put(0, cx, cy, cols - cx, bl);               // TR ↔ BL
+    put(cy, 0, rows - cy, cx, tr);
     return dst;
   }
 
