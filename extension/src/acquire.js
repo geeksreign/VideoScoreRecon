@@ -226,5 +226,5 @@ window.VSRAcquire = (function () {
     try { return new URL(u).hostname; } catch (e) { return u.slice(0, 40); }
   }
 
-  return { acquire, parseUrl, sniffUrls, fetchWithProgress };
+  return { acquire, parseUrl, sniffUrls, fetchWithProgress, getVideoInfo };
 })();

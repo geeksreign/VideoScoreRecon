@@ -133,13 +133,15 @@
     panel.id = 'score-ext-panel';
     panel.innerHTML = `
       <h3>🎼 视频乐谱提取器</h3>
-      <div class="se-row">
-        <label>开始时间（秒或 mm:ss，可空）</label>
-        <input id="se-start" type="text" placeholder="例如 30 或 0:30">
-      </div>
-      <div class="se-row">
-        <label>结束时间（秒或 mm:ss，可空）</label>
-        <input id="se-end" type="text" placeholder="例如 60 或 1:00">
+      <div class="se-row se-times">
+        <div class="se-time">
+          <label>开始时间</label>
+          <input id="se-start" type="text" value="0:00">
+        </div>
+        <div class="se-time">
+          <label>结束时间</label>
+          <input id="se-end" type="text" placeholder="留空=到结尾">
+        </div>
       </div>
       <div class="se-status" id="se-status"></div>
       <div class="se-bar-wrap" id="se-bar-wrap">
@@ -161,10 +163,56 @@
     checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
   }
 
+  /** 秒 → `m:ss` / `h:mm:ss`（向上取整，保证自动值覆盖全片） */
+  function fmtTime(sec) {
+    const t = Math.ceil(sec);
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = t % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+  }
+
+  /**
+   * 视频时长（秒）：优先取播放器 video 元数据（零请求），
+   * 回退 acquire 的 B 站 view API；都拿不到返回 null（结束留空=到结尾）。
+   */
+  async function videoDurationSec() {
+    try {
+      const v = document.querySelector('video');
+      if (v && isFinite(v.duration) && v.duration > 0) return v.duration;
+    } catch (e) { /* ignore */ }
+    try {
+      const A = window.VSRAcquire;
+      if (A && typeof A.getVideoInfo === 'function') {
+        const { bvid, page } = A.parseUrl(location.href);
+        const info = await A.getVideoInfo(bvid, page);
+        if (info && info.duration > 0) return info.duration;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /**
+   * 自动填结束时间=视频时长（mm:ss）。
+   * dataset.auto 守卫：用户手动改过的值重开面板不覆盖，仅空值/仍为上次自动值时刷新。
+   */
+  function fillEndTime() {
+    videoDurationSec().then((sec) => {
+      if (sec == null) return;
+      const el = document.getElementById('se-end');
+      if (!el || el.value && el.value !== el.dataset.auto) return;
+      el.value = fmtTime(sec);
+      el.dataset.auto = el.value;
+    }).catch(() => { /* 时长取不到保持留空 */ });
+  }
+
   function togglePanel() {
     const panel = document.getElementById('score-ext-panel');
     const open = panel.classList.toggle('se-open');
     if (open) {
+      fillEndTime();
       checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
     }
   }

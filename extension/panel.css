@@ -40,6 +40,8 @@
 }
 
 #score-ext-panel .se-row { margin-bottom: 10px; }
+#score-ext-panel .se-times { display: flex; gap: 8px; }
+#score-ext-panel .se-times .se-time { flex: 1; min-width: 0; }
 #score-ext-panel label { font-size: 12px; color: #61666d; display: block; margin-bottom: 3px; }
 #score-ext-panel input {
   width: 100%;

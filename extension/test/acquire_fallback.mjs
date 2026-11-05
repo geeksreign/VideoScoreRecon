@@ -67,6 +67,16 @@ function makeChrome(connectScript) {
   return { chrome, calls };
 }
 
+// ---- 0. 导出完整性（content 时长回退依赖 getVideoInfo） ----
+{
+  const sb = makeSandbox({ fetch: async () => { throw new TypeError('x'); } });
+  const keys = Object.keys(sb.VSRAcquire).sort();
+  check('exports', JSON.stringify(keys) ===
+    JSON.stringify(['acquire', 'fetchWithProgress', 'getVideoInfo', 'parseUrl', 'sniffUrls']),
+  keys.join(','));
+  check('getVideoInfo_is_fn', typeof sb.VSRAcquire.getVideoInfo === 'function', '');
+}
+
 // ---- 1. 层②成功：include 抛错 → omit 成功，记录 credentials 顺序与进度 ----
 {
   const calls = [];
