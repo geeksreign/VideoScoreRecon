@@ -67,13 +67,15 @@
   function getCfg() {
     return new Promise((resolve, reject) => {
       try {
-        chrome.storage.local.get(['baseUrl', 'token', 'cookie'], (cfg) => {
+        chrome.storage.local.get(['baseUrl', 'token', 'cookie', 'quality', 'interval'], (cfg) => {
           const err = chrome.runtime.lastError;
           if (err) { reject(ctxErr(new Error(err.message))); return; }
           resolve({
             baseUrl: (cfg.baseUrl || DEFAULT_BASE).trim(),
             token: cfg.token || '',
             cookie: cfg.cookie || '',
+            quality: cfg.quality || '480',   // 设置页「视频画质」，未设置=480P
+            interval: cfg.interval || '',    // 设置页「抽帧间隔」，空=默认2.5s
           });
         });
       } catch (e) { reject(ctxErr(e)); }
@@ -140,6 +142,12 @@
       if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
     }
     return parseFloat(s);
+  }
+
+  // 抽帧间隔解析：合法正数（秒，≥0.1）生效，空/非法回退默认 2.5
+  function parseInterval(v) {
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n >= 0.1 ? n : 2.5;
   }
 
   let polling = false;
@@ -299,7 +307,7 @@
         url: location.href,
         start_time: parseTime(p.querySelector('#se-start').value),
         end_time: parseTime(p.querySelector('#se-end').value),
-        interval_sec: 2.5,          // 抽帧间隔默认值（面板不再暴露）
+        interval_sec: parseInterval(cfg.interval),   // 设置页 storage.interval，空=2.5
         dedup_threshold: 0.01,      // 去重阈值默认值（面板不再暴露）
         cookie: cfg.cookie || undefined,   // SESSDATA 由设置页维护到 storage
       };
@@ -391,7 +399,7 @@
     const params = {
       startTime: parseTime(p.querySelector('#se-start').value),
       endTime: parseTime(p.querySelector('#se-end').value),
-      intervalSec: 2.5,          // 抽帧间隔默认值（面板不再暴露）
+      intervalSec: parseInterval(cfg.interval),   // 设置页 storage.interval，空=2.5
       dedupThreshold: 0.01,      // 去重阈值默认值（面板不再暴露）
     };
     try {

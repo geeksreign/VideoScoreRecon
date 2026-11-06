@@ -34,6 +34,10 @@
     <option value="player">跟随播放器（嗅探优先，画质=正在观看的流）</option>
   </select>
 
+  <h2>抽帧间隔（提取用）</h2>
+  <label>秒数；越小抽得越密、耗时越长。留空 = 默认 2.5</label>
+  <input id="interval" type="number" min="0.1" step="0.1" placeholder="2.5">
+
   <h2>高级：本地 Python 服务（可选）</h2>
   <label>服务地址（留空 = 使用内置本地引擎）</label>
   <input id="baseUrl" placeholder="留空即可；如 http://127.0.0.1:8000">
