@@ -1,17 +1,22 @@
 #score-ext-btn {
   position: fixed;
-  right: 24px;
-  top: 120px;
+  right: 0;                      /* 贴内容区右缘——从浏览器边框往左“长出” */
+  top: 72px;                     /* 顶栏下沿，不遮挡头像/菜单 */
   z-index: 2147483000;
-  background: #fb7299;
-  color: #fff;
+  padding: 10px 22px 10px 16px;  /* 右厚左薄：根部在边缘 */
   border: none;
-  border-radius: 20px;
-  padding: 10px 16px;
+  border-radius: 22px 0 0 22px;  /* 只圆左两角，右缘与边框无缝 */
   font-size: 14px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.96);
+  /* 玻璃感：粉调半透明渐变 + 背景模糊 + 顶部高光 + 柔和投影 */
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.62), rgba(251, 114, 153, 0.32));
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 6px 18px rgba(0, 0, 0, 0.22);
 }
+
+#score-ext-btn:hover { filter: brightness(1.06); }
 
 #score-ext-panel {
   position: fixed;
