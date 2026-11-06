@@ -1,10 +1,11 @@
 // 视频源获取（content script 环境运行，挂在 window.VSRAcquire）
 //
 // 取流策略（opts.quality，设置页可选，默认 480——与本地 Python 管线同源、去重最稳）：
-//   480/720/1080（默认 480，playurl qn=32/64/80）：playurl 主取（AVC 优先，同
-//      Python pick_streams）→ 失败降级播放器嗅探（画质可能回到播放器档）
+//   480（默认，playurl qn=32）：主取且**强制游客视图**（credentials:omit——与 Python
+//      无 cookie 请求同码流，屏蔽登录态差异；失败回退登录态重试）→ 仍败降级嗅探
+//   720/1080（qn=64/80）：playurl 主取（登录态，AVC 优先）→ 失败降级播放器嗅探
 //   player（跟随播放器）：嗅探主取（零 API、画质=正在观看的流）→ 失败 playurl(qn=80) 兜底
-//   playurl port 自 src/video_scrap/bili/api.py，页面 cookie 自动携带（credentials:include）
+//   playurl port 自 src/video_scrap/bili/api.py，页面 cookie 默认自动携带（credentials:include）
 //
 // 下载分三层（fetchWithProgress）：
 //   ① 页面源 fetch credentials:include —— 自带 Referer/cookie（首选）
@@ -25,10 +26,11 @@ window.VSRAcquire = (function () {
     return { bvid: m[1], page: parseInt(q.get('p') || '1', 10) };
   }
 
-  async function getJson(apiUrl, params) {
+  async function getJson(apiUrl, params, opts) {
     const u = new URL(apiUrl);
     for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
-    const r = await fetch(u.toString(), { credentials: 'include' });
+    const r = await fetch(u.toString(),
+      { credentials: (opts && opts.omitCred) ? 'omit' : 'include' });
     if (!r.ok) throw new Error('B站 API HTTP ' + r.status);
     const j = await r.json();
     if (j.code !== 0) throw new Error('B站 API code=' + j.code + ' ' + (j.message || ''));
@@ -51,10 +53,10 @@ window.VSRAcquire = (function () {
     };
   }
 
-  async function getPlayUrl(bvid, cid, qn = 80) {
+  async function getPlayUrl(bvid, cid, qn = 80, opts) {
     const data = await getJson(API_PLAYURL, {
       bvid, cid, qn, fnval: 16, fnver: 0, fourk: 1,
-    });
+    }, opts);
     const dash = data.dash;
     if (!dash || !dash.video || !dash.video.length) {
       throw new Error('该视频没有 DASH 流（可能需要登录）');
@@ -213,11 +215,25 @@ window.VSRAcquire = (function () {
     const { bvid, page } = parseUrl(pageUrl);
     const info = await getVideoInfo(bvid, page);
     report('download', 0.06, `视频: ${info.part || info.title}`);
-    const { urls, width, height } = await getPlayUrl(bvid, info.cid, qn);
-    report('download', 0.08, `画质 ${height}p ${width}x${height}`);
-    const { buffer, url } = await fetchWithProgress(urls, (p, m) =>
+    let r;
+    if (qn === QN_BY_QUALITY['480']) {
+      // 480 档强制游客视图（credentials:omit）：与本地 Python（无 cookie 游客
+      // playurl）同一条请求语义、同码流，屏蔽登录态返回不同表示的变量；
+      // 游客视图失败（如风控要求 cookie）再带登录态重试
+      try {
+        r = await getPlayUrl(bvid, info.cid, qn, { omitCred: true });
+        report('download', 0.07, 'playurl 游客视图（与本地 Python 同源）');
+      } catch (e) {
+        report('download', 0.07, `游客视图失败（${e && e.message}），带登录态重试`);
+        r = await getPlayUrl(bvid, info.cid, qn);
+      }
+    } else {
+      r = await getPlayUrl(bvid, info.cid, qn);
+    }
+    report('download', 0.08, `画质 ${r.height}p ${r.width}x${r.height}`);
+    const { buffer, url } = await fetchWithProgress(r.urls, (p, m) =>
       report('download', 0.08 + p * 0.9, m));
-    return { buffer, channel: 'playurl', label: `${height}p ${hostOf(url)}` };
+    return { buffer, channel: 'playurl', label: `${r.height}p ${hostOf(url)}` };
   }
 
   /**

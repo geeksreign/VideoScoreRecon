@@ -166,14 +166,15 @@ function playurlOk() {
     backupUrl: [], width: 640, height: 480 }] } } }) };
 }
 
-// 5.1 默认（不传 opts）= 480P：playurl 请求 qn=32，嗅探 URL 不被取用
+// 5.1 默认（不传 opts）= 480P：playurl 请求 qn=32 且**游客视图(omit)**，嗅探不被取用
 {
   const log = [];
+  const creds = [];
   const sb = makeSandbox(Object.assign({
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       log.push(url);
       if (url.includes('/x/web-interface/view')) return viewOk();
-      if (url.includes('/x/player/playurl')) return playurlOk();
+      if (url.includes('/x/player/playurl')) { creds.push(init && init.credentials); return playurlOk(); }
       if (url === 'https://cdn.example/play.m4s') return okResponse([1, 2, 3], 3);
       throw new TypeError('unexpected ' + url);
     },
@@ -183,6 +184,7 @@ function playurlOk() {
   check('q_default_label_480p', r.label.startsWith('480p'), r.label);
   check('q_default_qn32', log.some((u) => u.includes('/playurl') && u.includes('qn=32')),
     log.filter((u) => u.includes('/playurl')).join());
+  check('q_default_playurl_guest_omit', JSON.stringify(creds) === '["omit"]', JSON.stringify(creds));
   check('q_default_sniff_untouched', !log.some((u) => u.includes('sniff.example')), log.join(' , '));
 }
 
@@ -233,6 +235,47 @@ function playurlOk() {
   const msg = (err && err.message) || '';
   check('q_allfail_prefix', msg.startsWith('所有下载源均失败:'), msg.slice(0, 60));
   check('q_allfail_both_channels', msg.includes('playurl[') && msg.includes('嗅探['), msg);
+}
+
+// 5.5 480 档游客视图被拒 → 带登录态重试（omit → include 顺序）
+{
+  const creds = [];
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url, init) => {
+      if (url.includes('/x/web-interface/view')) return viewOk();
+      if (url.includes('/x/player/playurl')) {
+        creds.push(init && init.credentials);
+        if (init && init.credentials === 'omit') throw new TypeError('风控要求 cookie');
+        return playurlOk();
+      }
+      if (url === 'https://cdn.example/play.m4s') return okResponse([1], 1);
+      throw new TypeError('unexpected ' + url);
+    },
+  }, SNIFF_ENTRY));
+  const r = await sb.VSRAcquire.acquire(PAGE_URL, () => {}, { quality: '480' });
+  check('q_guestretry_channel', r.channel === 'playurl', r.channel);
+  check('q_guestretry_seq', JSON.stringify(creds) === '["omit","include"]', JSON.stringify(creds));
+}
+
+// 5.6 1080 档：qn=80 且只用登录态（不走游客视图，防止静默降档）
+{
+  const creds = [], qns = [];
+  const sb = makeSandbox(Object.assign({
+    fetch: async (url, init) => {
+      if (url.includes('/x/web-interface/view')) return viewOk();
+      if (url.includes('/x/player/playurl')) {
+        creds.push(init && init.credentials);
+        qns.push(new URL(url).searchParams.get('qn'));
+        return playurlOk();
+      }
+      if (url === 'https://cdn.example/play.m4s') return okResponse([1], 1);
+      throw new TypeError('unexpected ' + url);
+    },
+  }, SNIFF_ENTRY));
+  const r = await sb.VSRAcquire.acquire(PAGE_URL, () => {}, { quality: '1080' });
+  check('q1080_channel_playurl', r.channel === 'playurl', r.channel);
+  check('q1080_qn80', JSON.stringify(qns) === '["80"]', JSON.stringify(qns));
+  check('q1080_cred_include_only', JSON.stringify(creds) === '["include"]', JSON.stringify(creds));
 }
 
 if (failures) {
