@@ -153,7 +153,6 @@
   let polling = false;
   const resultUrls = [];   // 本次展示占用的 Blob URL，下次运行前统一释放
   let lastKeptCrops = null;   // 最近一次提取的保留帧 PNG（编辑器微调数据源）
-  let editReadyHandler = null;   // 编辑器 ready 握手监听（重开前清理）
 
   function releaseResultUrls() {
     for (const u of resultUrls) URL.revokeObjectURL(u);
@@ -299,7 +298,6 @@
       document.getElementById('se-result').classList.remove('se-visible');
       releaseResultUrls();
       lastKeptCrops = null;
-      if (editReadyHandler) { window.removeEventListener('message', editReadyHandler); editReadyHandler = null; }
       document.getElementById('se-downloads').innerHTML = '';
       if (!cfg.baseUrl) {
         await localExtract(cfg);
@@ -435,28 +433,28 @@
   }
 
   /**
-   * 打开片段微调页（新标签）：编辑器加载完成后向本页发 ready，
-   * 校验来源后把 keptCrops 克隆过去（不转移——本页保留数据，可重复打开）
+   * 打开片段微调页：数据与打开都交给 background（存 crops → tabs.create 新标签
+   * → 编辑页回取）。网页/地址栏直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT
+   * 拦截，扩展 API 发起的创建不受影响（与设置页同一类路径）。
+   * crops 走消息克隆——本页保留数据，可重复打开。
    */
   function openEditor() {
     if (!lastKeptCrops || !lastKeptCrops.length) return;
-    const url = chrome.runtime.getURL('editor.html');
-    const w = window.open(url, '_blank');
-    if (!w) {
-      setStatus('⚠️ 浏览器拦截了新标签页，请允许弹窗后重试');
-      return;
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'vsr-editor-payload', crops: lastKeptCrops },
+        (resp) => {
+          const err = chrome.runtime.lastError;
+          if (err || !resp || !resp.ok) {
+            setStatus('❌ 打开微调页失败: '
+              + ((err && err.message) || (resp && resp.error) || '未知错误'));
+            return;
+          }
+          setStatus('已在新标签页打开微调页…');
+        });
+    } catch (e) {
+      setStatus('❌ ' + ctxErr(e).message);
     }
-    const origin = new URL(url).origin;
-    if (editReadyHandler) window.removeEventListener('message', editReadyHandler);
-    editReadyHandler = (e) => {
-      if (e.source !== w) return;
-      if (!e.data || e.data.vsr !== 'editor-ready') return;
-      window.removeEventListener('message', editReadyHandler);
-      editReadyHandler = null;
-      w.postMessage({ vsr: 'crops', crops: lastKeptCrops }, origin);
-    };
-    window.addEventListener('message', editReadyHandler);
-    setStatus('已在新标签页打开微调页…');
   }
 
   function showLocalResult(result, params) {

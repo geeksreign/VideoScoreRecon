@@ -3,6 +3,31 @@ chrome.action.onClicked.addListener(() => {
   chrome.runtime.openOptionsPage();
 });
 
+// ---- 片段微调页：数据中转 + 由扩展 API 发起打开 ----
+// 网页发起/地址栏直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦截
+// （实测连地址栏都拦），而 openOptionsPage/tabs.create 这类 API 发起的页面创建
+// 不受影响（设置页正常）——故打开与片段数据都收进 background。
+// 协议：content → {type:'vsr-editor-payload', crops}（存+建标+回执）
+//       editor  → {type:'vsr-editor-get'} （同步取回 crops）
+let editorPayload = null;
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg.type !== 'string') return;
+  if (msg.type === 'vsr-editor-payload') {
+    editorPayload = Array.isArray(msg.crops) ? msg.crops : null;
+    chrome.tabs.create({ url: chrome.runtime.getURL('editor.html') }, (tab) => {
+      const err = chrome.runtime.lastError;
+      sendResponse(err ? { ok: false, error: err.message }
+        : { ok: true, tabId: tab && tab.id });
+    });
+    return true;   // 异步回执
+  }
+  if (msg.type === 'vsr-editor-get') {
+    sendResponse({ crops: editorPayload });
+    // 同步回执
+  }
+});
+
 // 端口流式下载（content.js/acquire.js 层③兜底）：扩展源 + host_permissions 豁免 CORS，
 // 不受页面源/混合内容限制；分块回传同时保持 MV3 SW 不被 idle 回收。
 // 协议：content → {type:'fetch',url}；SW → progress(节流)/chunk(转移)/done/error

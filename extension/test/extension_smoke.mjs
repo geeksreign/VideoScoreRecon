@@ -80,8 +80,29 @@ try {
       });
       console.log(stamp(), 'result:', JSON.stringify(info));
       if (info.visible && info.imgSrc === 'blob:' && info.links.length) {
-        console.log('E2E REAL-SITE PASS');
-        exitCode = 0;
+        // 编辑器入口回归：必须由 background tabs.create 打开
+        // （网页/地址栏直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦）
+        let editorOk = false;
+        try {
+          const editBtn = await page.$('#se-edit-btn');
+          if (!editBtn) throw new Error('入口按钮缺失');
+          await editBtn.click();
+          const t = await browser.waitForTarget(
+            (x) => x.type() === 'page' && x.url().includes('/editor.html'), { timeout: 20000 });
+          const epg = await t.page();
+          await epg.waitForFunction(
+            () => document.querySelectorAll('.ed-card').length > 0,
+            { timeout: 30000, polling: 500 });
+          const cards = await epg.evaluate(() => document.querySelectorAll('.ed-card').length);
+          console.log(stamp(), 'editor 标签已打开, 卡片=' + cards);
+          editorOk = cards > 0;
+        } catch (e) {
+          console.error(stamp(), 'EDITOR-ENTRY FAIL:', e.message);
+        }
+        if (editorOk) {
+          console.log('E2E REAL-SITE PASS');
+          exitCode = 0;
+        }
       }
     }
   }

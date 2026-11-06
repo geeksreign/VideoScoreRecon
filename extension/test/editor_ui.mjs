@@ -51,6 +51,10 @@ try {
   await page.goto(`${base}/extension/editor.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => window.VSREditor && document.querySelectorAll('.ed-card').length >= 0);
 
+  // 0. 无 chrome.runtime 环境（server 测试页）→ standby 提示，注入钩子可用
+  const standby = await page.evaluate(() => document.getElementById('ed-status').textContent);
+  step('standby_hint', standby.includes('VSREditor.load'), standby);
+
   // 1. 注入 3 张合成片段（帧 100/200/300）
   const loaded = await page.evaluate(async () => {
     const mk = async (frame, barY) => {

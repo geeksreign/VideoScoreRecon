@@ -24,6 +24,11 @@ window.chrome = {
       postMessage() {},
       disconnect() {},
     }),
+    // 微调页交数据桩：记录消息并回执成功（真实链路=background 存储+tabs.create）
+    sendMessage: (msg, cb) => {
+      (window.__vsrMsgs = window.__vsrMsgs || []).push(msg);
+      if (cb) cb({ ok: true, tabId: 1 });
+    },
   },
   permissions: {
     request: () => Promise.resolve(true),
@@ -101,6 +106,18 @@ window.VSRAcquire = {
     const editBtn = document.getElementById('se-edit-btn');
     step('edit_entry', !!editBtn && /微调片段后合并/.test(editBtn.textContent),
       editBtn ? editBtn.textContent : '按钮缺失');
+
+    // 4.6 点击入口 → runtime.sendMessage 交数据（真实链路=background 存+tabs.create）
+    if (editBtn) {
+      editBtn.click();
+      await waitStatus((s) => s.includes('已在新标签页打开微调页'), 5000);
+      const msgs = window.__vsrMsgs || [];
+      step('edit_handoff', msgs.length > 0 && msgs[0].type === 'vsr-editor-payload'
+        && (msgs[0].crops || []).length === 4,
+      JSON.stringify({ n: msgs.length, crops: msgs[0] && (msgs[0].crops || []).length }));
+    } else {
+      step('edit_handoff', false, '入口缺失');
+    }
 
     // 5. 连续第二次提取（回归：成功后改结束时间再点「开始提取」无反应）
     //    点击的同步段会把状态立刻改离上次终态；polling 卡死会停在「⏳」并快速失败
