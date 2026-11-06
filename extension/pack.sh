@@ -12,6 +12,7 @@ zip -r "$OUT" \
   manifest.json \
   background.js content.js options.html options.js panel.css \
   worker_host.html worker_host.js \
+  editor.html editor.js editor.css \
   icons \
   src/acquire.js src/worker.js src/decode.js src/stitch.js \
   src/pipeline \

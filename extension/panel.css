@@ -118,3 +118,17 @@
   text-decoration: none;
   font-size: 13px;
 }
+
+#score-ext-panel #se-edit-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #fb7299;
+  color: #fb7299;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#score-ext-panel #se-edit-btn:hover { background: #fff0f5; }

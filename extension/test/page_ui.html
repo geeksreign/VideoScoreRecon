@@ -97,6 +97,11 @@ window.VSRAcquire = {
     step('download_link', info.links.length > 0 && /\.png$/.test(info.links[0].download),
       JSON.stringify(info.links));
 
+    // 4.5 片段微调入口（真 worker keptCrops → content 按钮链路）
+    const editBtn = document.getElementById('se-edit-btn');
+    step('edit_entry', !!editBtn && /微调片段后合并/.test(editBtn.textContent),
+      editBtn ? editBtn.textContent : '按钮缺失');
+
     // 5. 连续第二次提取（回归：成功后改结束时间再点「开始提取」无反应）
     //    点击的同步段会把状态立刻改离上次终态；polling 卡死会停在「⏳」并快速失败
     document.getElementById('se-end').value = '10';

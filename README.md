@@ -87,6 +87,7 @@ src/                  Python 流水线 + FastAPI 服务（参考实现）
 extension/            Chrome 扩展（MV3，产品）
   manifest.json       权限：storage + bilibili/API/CDN host
   content.js          注入 UI，本地/HTTP 双模式分流
+  editor.html|js|css  片段微调页（去重结果删/复制/排序/撤销 → 重新合并）
   src/acquire.js      视频源取流（默认480P: playurl 主取 / 嗅探兜底，设置页四档）
   src/worker.js       处理 Worker（解码→检测→去重→拼接）
   src/pipeline/       OpenCV.js 算法移植（与 src/videocore 同源语义）

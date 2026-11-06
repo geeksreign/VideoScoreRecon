@@ -56,6 +56,46 @@ function progress(stage, p, message) {
   post({ type: 'progress', stage, progress: p, message: message || '' });
 }
 
+/**
+ * BGR Mat → PNG 字节（去重保留帧的“可编辑片段”载体：无损、体积小、
+ * 无 Mat 行步长/跨上下文序列化问题）
+ * @param {cv.Mat} mat CV_8UC3
+ * @returns {Promise<ArrayBuffer>}
+ */
+async function matToPng(mat) {
+  const w = mat.cols, h = mat.rows;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  const step = VSR.rowStep(mat), d = mat.data;
+  for (let y = 0; y < h; y++) {
+    const off = y * step;
+    for (let x = 0; x < w; x++) {
+      const s = off + x * 3, t = (y * w + x) * 4;
+      rgba[t] = d[s + 2]; rgba[t + 1] = d[s + 1]; rgba[t + 2] = d[s]; rgba[t + 3] = 255;
+    }
+  }
+  const canvas = new OffscreenCanvas(w, h);
+  canvas.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  return blob.arrayBuffer();
+}
+
+/**
+ * Stitcher 封段 → done 消息载荷（run 与编辑器 restitch 共用）
+ * @returns {Promise<{segments: Array<{buffer,width,height,from,to}>, transfer: ArrayBuffer[]}>}
+ */
+async function segmentsToPayload(stitcher) {
+  const st = await stitcher.finish();
+  const segments = [];
+  for (const seg of st.segments) {
+    const ab = await seg.blob.arrayBuffer();
+    segments.push({
+      buffer: ab, width: seg.width, height: seg.height,
+      from: seg.from, to: seg.to,
+    });
+  }
+  return { segments, transfer: segments.map((s) => s.buffer) };
+}
+
 async function run(buffer, params) {
   cancelRequested = false;
   const intervalSec = params.intervalSec || VSR.CONST.DEFAULT_INTERVAL;
@@ -72,6 +112,7 @@ async function run(buffer, params) {
   const stitcher = new VSR.Stitcher();
   let saved = 0, skipped = 0;
   const frameNos = [];           // 保留帧的帧号（对齐 Python crops/score_XXXXXX 命名）
+  const keptCrops = [];          // 保留帧 PNG（编辑器微调合并用，done 一并带出）
   let startFrame = 0, endFrame = null, sampleStep = 1, totalFrames = null;
   let lastPct = -1;
 
@@ -201,6 +242,10 @@ async function run(buffer, params) {
         const { isNew } = dedup.add(crop);
         if (i === 0) console.log('[vsr] onSample(0) dedup done isNew=' + isNew);
         if (isNew) {
+          // 进 stitcher（接管删除）之前先编码 PNG——编辑器“片段微调”的数据来源
+          keptCrops.push({
+            png: await matToPng(crop), width: crop.cols, height: crop.rows, frame: i,
+          });
           await stitcher.add(crop, i);   // stitcher 内部 delete
           if (i === 0) console.log('[vsr] onSample(0) stitch done');
           saved++;
@@ -226,15 +271,7 @@ async function run(buffer, params) {
   }
 
   progress('stitch', 0.99, '拼接中');
-  const st = await stitcher.finish();
-  const segments = [];
-  for (const seg of st.segments) {
-    const ab = await seg.blob.arrayBuffer();
-    segments.push({
-      buffer: ab, width: seg.width, height: seg.height,
-      from: seg.from, to: seg.to,
-    });
-  }
+  const { segments, transfer } = await segmentsToPayload(stitcher);
   progress('done', 1.0, `保存 ${saved} 张`);
   post({
     type: 'done',
@@ -244,7 +281,43 @@ async function run(buffer, params) {
       durationSec: meta.durationSec,
     } : null,
     saved, skipped, frameNos, decoded: result ? result.decoded : 0,
-  }, segments.map((s) => s.buffer));
+    keptCrops,
+  }, transfer.concat(keptCrops.map((c) => c.png)));
+}
+
+/**
+ * 编辑器「重新合并」：给定已去重的 PNG 片段直接走 Stitcher——与产线 run()
+ * 的合并语义逐像素一致（同一 VSR.Stitcher、同一顺序堆叠规则）
+ * @param {Array<{png: ArrayBuffer, frame: number}>} crops
+ */
+async function restitch(crops) {
+  cancelRequested = false;
+  const n = crops.length;
+  if (!n) { post({ type: 'error', message: '没有可合并的片段' }); return; }
+  const stitcher = new VSR.Stitcher();
+  for (let idx = 0; idx < n; idx++) {
+    if (cancelRequested) { post({ type: 'error', message: '已取消' }); return; }
+    const c = crops[idx];
+    const bmp = await createImageBitmap(new Blob([c.png], { type: 'image/png' }));
+    const w = bmp.width, h = bmp.height;
+    const cvCanvas = new OffscreenCanvas(w, h);
+    const ctx = cvCanvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+    const img = ctx.getImageData(0, 0, w, h);
+    const mat = new cv.Mat(h, w, cv.CV_8UC3);
+    const d = mat.data, s = img.data;
+    for (let p = 0, q = 0; p < d.length; p += 3, q += 4) {
+      d[p] = s[q + 2]; d[p + 1] = s[q + 1]; d[p + 2] = s[q];
+    }
+    await stitcher.add(mat, c.frame);   // stitcher 内部 delete
+    post({ type: 'progress', stage: 'stitch', progress: (idx + 1) / n, message: `合并 ${idx + 1}/${n}` });
+  }
+  const { segments, transfer } = await segmentsToPayload(stitcher);
+  post({
+    type: 'done', segments,
+    saved: n, skipped: 0, frameNos: crops.map((c) => c.frame),
+  }, transfer);
 }
 
 self.onmessage = (e) => {
@@ -260,6 +333,20 @@ self.onmessage = (e) => {
       Promise.resolve().then(() => {
         if (!cv || !cv.Mat) throw new Error('OpenCV.js 初始化失败');
         return run(msg.buffer, msg.params || {});
+      }).catch((err) => {
+        post({ type: 'error', message: String(err && err.message || err) });
+      });
+    }, (e) => {
+      post({ type: 'error', message: 'OpenCV 加载失败: ' + String(e && e.message || e) });
+    });
+    return;
+  }
+  if (msg.cmd === 'stitch') {
+    console.log('[vsr] stitch cmd received, crops=' + (msg.crops ? msg.crops.length : 0));
+    whenCvReady((cv) => {
+      Promise.resolve().then(() => {
+        if (!cv || !cv.Mat) throw new Error('OpenCV.js 初始化失败');
+        return restitch(msg.crops || []);
       }).catch((err) => {
         post({ type: 'error', message: String(err && err.message || err) });
       });

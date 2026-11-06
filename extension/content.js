@@ -152,6 +152,8 @@
 
   let polling = false;
   const resultUrls = [];   // 本次展示占用的 Blob URL，下次运行前统一释放
+  let lastKeptCrops = null;   // 最近一次提取的保留帧 PNG（编辑器微调数据源）
+  let editReadyHandler = null;   // 编辑器 ready 握手监听（重开前清理）
 
   function releaseResultUrls() {
     for (const u of resultUrls) URL.revokeObjectURL(u);
@@ -296,6 +298,8 @@
       const cfg = await getCfg();
       document.getElementById('se-result').classList.remove('se-visible');
       releaseResultUrls();
+      lastKeptCrops = null;
+      if (editReadyHandler) { window.removeEventListener('message', editReadyHandler); editReadyHandler = null; }
       document.getElementById('se-downloads').innerHTML = '';
       if (!cfg.baseUrl) {
         await localExtract(cfg);
@@ -430,6 +434,31 @@
     }
   }
 
+  /**
+   * 打开片段微调页（新标签）：编辑器加载完成后向本页发 ready，
+   * 校验来源后把 keptCrops 克隆过去（不转移——本页保留数据，可重复打开）
+   */
+  function openEditor() {
+    if (!lastKeptCrops || !lastKeptCrops.length) return;
+    const url = chrome.runtime.getURL('editor.html');
+    const w = window.open(url, '_blank');
+    if (!w) {
+      setStatus('⚠️ 浏览器拦截了新标签页，请允许弹窗后重试');
+      return;
+    }
+    const origin = new URL(url).origin;
+    if (editReadyHandler) window.removeEventListener('message', editReadyHandler);
+    editReadyHandler = (e) => {
+      if (e.source !== w) return;
+      if (!e.data || e.data.vsr !== 'editor-ready') return;
+      window.removeEventListener('message', editReadyHandler);
+      editReadyHandler = null;
+      w.postMessage({ vsr: 'crops', crops: lastKeptCrops }, origin);
+    };
+    window.addEventListener('message', editReadyHandler);
+    setStatus('已在新标签页打开微调页…');
+  }
+
   function showLocalResult(result, params) {
     const segs = result.segments || [];
     if (!segs.length) {
@@ -454,6 +483,17 @@
         : `下载拼接图（${s.width}x${s.height}）`;
       dl.appendChild(a);
     });
+    // 片段微调入口（仅本地模式、keptCrops 非空时出现）
+    if (result.keptCrops && result.keptCrops.length) {
+      lastKeptCrops = result.keptCrops;
+      const editBtn = document.createElement('button');
+      editBtn.id = 'se-edit-btn';
+      editBtn.textContent = `✂️ 微调片段后合并（${result.keptCrops.length} 张）`;
+      editBtn.addEventListener('click', openEditor);
+      dl.appendChild(editBtn);
+    } else {
+      lastKeptCrops = null;
+    }
     document.getElementById('se-result').classList.add('se-visible');
     setStatus(`✅ 完成：保留 ${result.saved} 张，去重 ${result.skipped} 张`
       + (segs.length > 1 ? `，分 ${segs.length} 段输出` : ''));
