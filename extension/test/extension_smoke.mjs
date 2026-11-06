@@ -90,12 +90,18 @@ try {
           const t = await browser.waitForTarget(
             (x) => x.type() === 'page' && x.url().includes('/editor.html'), { timeout: 20000 });
           const epg = await t.page();
-          await epg.waitForFunction(
-            () => document.querySelectorAll('.ed-card').length > 0,
-            { timeout: 30000, polling: 500 });
-          const cards = await epg.evaluate(() => document.querySelectorAll('.ed-card').length);
-          console.log(stamp(), 'editor 标签已打开, 卡片=' + cards);
-          editorOk = cards > 0;
+          // 缩略图字节完整性：全部解码成功且非空 blob（防 runtime 消息 JSON 化丢字节回归）
+          await epg.waitForFunction(() => {
+            const im = Array.from(document.querySelectorAll('.ed-card img'));
+            return im.length > 0 && im.every((x) => x.complete && x.naturalWidth > 0);
+          }, { timeout: 30000, polling: 500 });
+          const cards = await epg.evaluate(async () => {
+            const imgs = Array.from(document.querySelectorAll('.ed-card img'));
+            const buf = await (await fetch(imgs[0].src)).arrayBuffer();
+            return { n: imgs.length, firstW: imgs[0].naturalWidth, blobSize: buf.byteLength };
+          });
+          console.log(stamp(), 'editor 图片完整性:', JSON.stringify(cards));
+          editorOk = cards.n > 0 && cards.firstW > 0 && cards.blobSize > 5000;
         } catch (e) {
           console.error(stamp(), 'EDITOR-ENTRY FAIL:', e.message);
         }

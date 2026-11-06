@@ -17,17 +17,21 @@ window.chrome = {
     // 测试页与 worker 同源（127.0.0.1 server），直接给同源绝对路径
     getURL: (p) => '/extension/' + p,
     lastError: undefined,
-    // keepalive port 桩（content 启动时连接，测试页无扩展生命周期）
-    connect: () => ({
-      onDisconnect: { addListener() {} },
-      onMessage: { addListener() {} },
-      postMessage() {},
-      disconnect() {},
-    }),
-    // 微调页交数据桩：记录消息并回执成功（真实链路=background 存储+tabs.create）
-    sendMessage: (msg, cb) => {
-      (window.__vsrMsgs = window.__vsrMsgs || []).push(msg);
-      if (cb) cb({ ok: true, tabId: 1 });
+    // port 桩：按 name 路由（keepalive 静默；vsr-editor-payload 记录 crops 并回 ack——
+    // 真实链路=MessagePort 传二进制 + background 存储 + tabs.create）
+    connect: ({ name } = {}) => {
+      const msgListeners = [];
+      return {
+        onMessage: { addListener: (f) => msgListeners.push(f) },
+        onDisconnect: { addListener() {} },
+        postMessage(m) {
+          if (name === 'vsr-editor-payload') {
+            (window.__vsrMsgs = window.__vsrMsgs || []).push(m);
+            setTimeout(() => msgListeners.forEach((f) => f({ ack: true, tabId: 1 })), 0);
+          }
+        },
+        disconnect() {},
+      };
     },
   },
   permissions: {
@@ -36,6 +40,7 @@ window.chrome = {
   },
 };
 </script>
+<script src="/extension/src/b64.js"></script>
 <script src="/extension/src/acquire.js"></script>
 <script>
 // mock acquire：本地 mp4 直取（真实通道①②在扩展环境/人工清单验收）
@@ -107,14 +112,13 @@ window.VSRAcquire = {
     step('edit_entry', !!editBtn && /微调片段后合并/.test(editBtn.textContent),
       editBtn ? editBtn.textContent : '按钮缺失');
 
-    // 4.6 点击入口 → runtime.sendMessage 交数据（真实链路=background 存+tabs.create）
+    // 4.6 点击入口 → MessagePort 交二进制载荷（真实链路=port→background 存→tabs.create）
     if (editBtn) {
       editBtn.click();
       await waitStatus((s) => s.includes('已在新标签页打开微调页'), 5000);
       const msgs = window.__vsrMsgs || [];
-      step('edit_handoff', msgs.length > 0 && msgs[0].type === 'vsr-editor-payload'
-        && (msgs[0].crops || []).length === 4,
-      JSON.stringify({ n: msgs.length, crops: msgs[0] && (msgs[0].crops || []).length }));
+      step('edit_handoff', msgs.length > 0 && (msgs[0].crops || []).length === 4,
+        JSON.stringify({ n: msgs.length, crops: msgs[0] && (msgs[0].crops || []).length }));
     } else {
       step('edit_handoff', false, '入口缺失');
     }

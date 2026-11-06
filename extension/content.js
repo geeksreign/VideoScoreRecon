@@ -433,25 +433,34 @@
   }
 
   /**
-   * 打开片段微调页：数据与打开都交给 background（存 crops → tabs.create 新标签
-   * → 编辑页回取）。网页/地址栏直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT
-   * 拦截，扩展 API 发起的创建不受影响（与设置页同一类路径）。
-   * crops 走消息克隆——本页保留数据，可重复打开。
+   * 打开片段微调页：数据与打开都交给 background（MessagePort 存 crops →
+   * tabs.create 新标签 → 编辑页回取）。两个关键点：
+   * - 打开必须走扩展 API（直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦）
+   * - 二进制必须走 port（runtime.sendMessage 是 JSON 化的，ArrayBuffer 会丢字节）
+   * png 以 base64 过通道（扩展消息=JSON），本页数据不动、可重复打开。
    */
   function openEditor() {
     if (!lastKeptCrops || !lastKeptCrops.length) return;
+    let settled = false;
     try {
-      chrome.runtime.sendMessage(
-        { type: 'vsr-editor-payload', crops: lastKeptCrops },
-        (resp) => {
-          const err = chrome.runtime.lastError;
-          if (err || !resp || !resp.ok) {
-            setStatus('❌ 打开微调页失败: '
-              + ((err && err.message) || (resp && resp.error) || '未知错误'));
-            return;
-          }
-          setStatus('已在新标签页打开微调页…');
-        });
+      const port = chrome.runtime.connect({ name: 'vsr-editor-payload' });
+      const finish = (m) => {
+        if (settled) return;
+        settled = true;
+        try { port.disconnect(); } catch (e) { /* ignore */ }
+        if (m && m.ack) setStatus('已在新标签页打开微调页…');
+        else setStatus('❌ 打开微调页失败: '
+          + ((m && m.error) || 'background 无响应（端口断开）'));
+      };
+      port.onMessage.addListener(finish);
+      port.onDisconnect.addListener(() => finish(null));
+      // Port=JSON 序列化（transfer 不生效）→ png 编码 base64 过通道；
+      // lastKeptCrops 原数据不动，可重复打开
+      const crops64 = lastKeptCrops.map((c) => ({
+        width: c.width, height: c.height, frame: c.frame,
+        png: VSRB64.encode(new Uint8Array(c.png)),
+      }));
+      port.postMessage({ crops: crops64 });
     } catch (e) {
       setStatus('❌ ' + ctxErr(e).message);
     }

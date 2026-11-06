@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(path.resolve(__dirname, '../src/acquire.js'), 'utf8');
+const B64SRC = fs.readFileSync(path.resolve(__dirname, '../src/b64.js'), 'utf8');
 
 let failures = 0;
 function check(name, ok, detail) {
@@ -17,13 +18,14 @@ function check(name, ok, detail) {
 
 function makeSandbox(opts = {}) {
   const sandbox = {
-    URL, Promise, Date, setTimeout, clearTimeout, queueMicrotask,
+    URL, Promise, Date, setTimeout, clearTimeout, queueMicrotask, btoa, atob,
     performance: opts.performance || { getEntriesByType: () => [] },
     fetch: opts.fetch,
   };
   sandbox.window = sandbox;
   if ('chrome' in opts) sandbox.chrome = opts.chrome;
   vm.createContext(sandbox);
+  vm.runInContext(B64SRC, sandbox, { filename: 'b64.js' });
   vm.runInContext(SRC, sandbox, { filename: 'acquire.js' });
   return sandbox;
 }
@@ -54,7 +56,8 @@ function makeChrome(connectScript) {
           postMessage(msg) {
             if (msg && msg.type === 'fetch') {
               queueMicrotask(() => connectScript(msg, (m) =>
-                msgListeners.forEach((f) => f(m)), () =>
+                // JSON 往返 = Chrome 真实消息序列化（ArrayBuffer 会在此变 {}）
+                msgListeners.forEach((f) => f(JSON.parse(JSON.stringify(m)))), () =>
                 discListeners.forEach((f) => f({}))));
             }
           },
@@ -101,7 +104,7 @@ function makeChrome(connectScript) {
 {
   const { chrome, calls } = makeChrome((msg, send) => {
     send({ type: 'progress', done: 3, total: 3 });
-    send({ type: 'chunk', buf: new Uint8Array([1, 2, 3]).buffer });
+    send({ type: 'chunk', b64: Buffer.from([1, 2, 3]).toString('base64') });
     send({ type: 'done' });
   });
   const sb = makeSandbox({

@@ -39,7 +39,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.bilibili.com/video/*"],
-      "js": ["src/acquire.js", "content.js"],
+      "js": ["src/b64.js", "src/acquire.js", "content.js"],
       "css": ["panel.css"]
     }
   ],

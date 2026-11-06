@@ -24,6 +24,7 @@ Early-stage uv-managed Python app (Python 3.12) for detecting/cropping musical s
 - Code comments are in Chinese.
 - `test_pic_exp.py` is an image-only crop test (uses `data/pic_exp/`, outputs to `data/pic_exp_out/`), independent of the video pipeline.
 - `tests/` holds pytest tests (auto-discovered); `test/` holds manual utility scripts (`comp_similar_pics.py` reuses `videocore/dedup.py` core, so both share one dedup implementation).
+- 扩展：`runtime.sendMessage` 与 `runtime.Port` 消息**都按 JSON 序列化**（postMessage 的 transfer 参数不生效）——二进制必须 base64（`src/b64.js` 的 VSRB64；微调页 crops 与 vsr-download 层③分块均实测踩过 `{}` 丢字节）。另外直导航 `chrome-extension://`（页面 window.open/地址栏）会被 ERR_BLOCKED_BY_CLIENT 拦，打开扩展页要用 background `tabs.create`。
 - 扩展：页面源 content script `new Worker('chrome-extension://...')` 必抛 SecurityError（WAR 只放行 fetch），流水线 worker 经隐藏 iframe `worker_host.html`（扩展源）中转构造。
 - 扩展：MV3 禁 `unsafe-eval`。`lib/opencv.js`（Emscripten/embind）已手工打 4 处无 eval 补丁：`createNamedFunction`、dynCall 蹦床、`craftInvokerFunction`（eval-free invoker 主路径）、`__emval_get_method_caller`——**升级/替换 opencv.js 必须重打**。manifest `content_security_policy.extension_pages` 必须是 `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`（worker.js 响应头继承该值，缺 wasm 会拒绝编译；加 `'inline-speculation-rules'`/`localhost` 等源 Chrome 拒载 manifest）。
 - 扩展：B 站碎片 `.m4s` 的 mvhd duration 可能为 0 → `worker.js` onMeta 用 `nbSamples/fps` 回推；解码进度心跳走 decode.js `onProgress`（抽帧 tick 的 `totalFrames` 依赖它）。下载分三层 `cred→nocred→background SW`（`acquire.js::fetchWithProgress`），全败后面板出「授权全网访问并重试」按钮（optional `*://*/*`）。

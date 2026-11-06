@@ -147,7 +147,9 @@ window.VSRAcquire = (function () {
             onProgress(m.done / m.total, `下载 ${mb(m.done)}/${mb(m.total)}`);
           }
         } else if (m.type === 'chunk') {
-          const u = new Uint8Array(m.buf);
+          // SW 侧按 base64 发（扩展消息=JSON，ArrayBuffer 会丢）
+          const u = typeof m.b64 === 'string' ? VSRB64.decode(m.b64)
+            : new Uint8Array(m.buf || []);
           chunks.push(u);
           done += u.length;
         } else if (m.type === 'done') {

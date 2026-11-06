@@ -14,7 +14,7 @@ zip -r "$OUT" \
   worker_host.html worker_host.js \
   editor.html editor.js editor.css \
   icons \
-  src/acquire.js src/worker.js src/decode.js src/stitch.js \
+  src/b64.js src/acquire.js src/worker.js src/decode.js src/stitch.js \
   src/pipeline \
   lib \
   -x '*.DS_Store' -x '*__pycache__*'

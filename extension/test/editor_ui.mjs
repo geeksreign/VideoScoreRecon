@@ -55,6 +55,10 @@ try {
   const standby = await page.evaluate(() => document.getElementById('ed-status').textContent);
   step('standby_hint', standby.includes('VSREditor.load'), standby);
 
+  // 0.5 布局：片段卡竖排（flex-direction: column）
+  const dir = await page.evaluate(() => getComputedStyle(document.getElementById('ed-strip')).flexDirection);
+  step('layout_vertical', dir === 'column', dir);
+
   // 1. 注入 3 张合成片段（帧 100/200/300）
   const loaded = await page.evaluate(async () => {
     const mk = async (frame, barY) => {

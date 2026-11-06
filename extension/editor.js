@@ -1,9 +1,10 @@
 // 片段微调页（扩展源顶层页）：接收提取产出的保留帧 PNG，
 // 支持 删除/就地复制/上下移/撤销 后「重新合并」——合并复用产线 VSR.Stitcher（worker cmd:'stitch'）。
 //
-// 数据链：content 把 crops 发 background 存储 → background 用 tabs.create 打开本页
-// （直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦）→ 本页向 background
-// 回取 crops。测试/独立使用：window.VSREditor.load(crops) 直接注入。
+// 数据链：content 经 MessagePort 把 crops 交 background 存储（runtime.sendMessage 是
+// JSON 化的会丢 ArrayBuffer 字节）→ background 用 tabs.create 打开本页（直导航
+// chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦）→ 本页经 MessagePort 回取。
+// 测试/独立使用：window.VSREditor.load(crops) 直接注入。
 (() => {
   const state = {
     items: [],    // {png: ArrayBuffer, width, height, frame, uid}
@@ -180,21 +181,39 @@
   window.VSREditor = { load, getItems: () => state.items.map(({ frame }) => frame) };
 
   render();
-  // 扩展源启动：数据由 background 中转（content 先存、tabs.create 打开本页、本页回取）。
-  // 网页/地址栏直导航 chrome-extension:// 会被 ERR_BLOCKED_BY_CLIENT 拦，故不用 opener。
+  // 扩展源启动：经 MessagePort 回取（结构化克隆保字节；connect 即唤醒 SW）
   if (typeof chrome !== 'undefined' && chrome.runtime
-    && typeof chrome.runtime.sendMessage === 'function') {
+    && typeof chrome.runtime.connect === 'function') {
     setStatus('正在载入片段…');
+    let settled = false;
     try {
-      chrome.runtime.sendMessage({ type: 'vsr-editor-get' }, (resp) => {
-        const err = chrome.runtime.lastError;
-        if (err) { setStatus('❌ 获取片段失败: ' + err.message); return; }
-        if (resp && resp.crops && resp.crops.length) {
-          load(resp.crops);
-        } else {
-          setStatus('没有待编辑的片段——请先在提取结果页完成一次提取，再点「✂️ 微调片段后合并」');
-        }
+      const port = chrome.runtime.connect({ name: 'vsr-editor' });
+      const done = (crops) => {
+        if (settled) return;
+        settled = true;
+        try { port.disconnect(); } catch (e) { /* ignore */ }
+        if (crops && crops.length) load(crops);
+        else setStatus('没有待编辑的片段——请先在提取结果页完成一次提取，再点「✂️ 微调片段后合并」');
+      };
+      const fail = (why) => {
+        if (settled) return;
+        settled = true;
+        try { port.disconnect(); } catch (e) { /* ignore */ }
+        setStatus('❌ 获取片段失败: ' + why);
+      };
+      port.onMessage.addListener((m) => {
+        // 通道载荷是 b64 形态 → 解码回字节（load 对裸 ArrayBuffer 也兼容）
+        const crops = (m && m.crops)
+          ? m.crops.map((c) => ({
+            width: c.width, height: c.height, frame: c.frame,
+            png: typeof c.png === 'string' ? VSRB64.decode(c.png) : c.png,
+          }))
+          : null;
+        done(crops);
       });
+      port.onDisconnect.addListener(() => fail('background 无响应（端口断开）'));
+      setTimeout(() => fail('回取超时(10s)'), 10000);
+      port.postMessage({ type: 'get' });
     } catch (e) { setStatus('❌ ' + ((e && e.message) || e)); }
   } else {
     setStatus('请在提取结果页点「✂️ 微调片段后合并」进入（测试可经 VSREditor.load 注入）');

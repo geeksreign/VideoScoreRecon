@@ -13,10 +13,11 @@ body { margin: 0; background: #f6f7f8; color: #18191c;
 .ed-actions button:disabled { opacity: 0.45; cursor: default; }
 .ed-actions .ed-primary { background: #fb7299; color: #fff; }
 
-/* 片段卡横排（乐谱条本身又宽又矮，横向滚动查看） */
-.ed-strip { display: flex; gap: 12px; padding: 16px; min-height: 230px;
-  overflow-x: auto; align-items: flex-start; }
-.ed-card { flex: 0 0 auto; width: 232px; background: #fff; border: 1px solid #e3e5e7;
+/* 片段卡竖排全宽（乐谱条又宽又矮，整幅宽纵向排列最可读） */
+.ed-strip { display: flex; flex-direction: column; align-items: center;
+  gap: 16px; padding: 16px; }
+.ed-card { flex: none; width: min(880px, calc(100vw - 32px)); background: #fff;
+  border: 1px solid #e3e5e7;
   border-radius: 10px; padding: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .ed-card-head { font-size: 12px; color: #61666d; margin-bottom: 6px; }
 .ed-card img { display: block; width: 100%; border: 1px solid #eee; border-radius: 4px;
