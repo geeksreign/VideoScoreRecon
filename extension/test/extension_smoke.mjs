@@ -44,13 +44,9 @@ try {
   await page.waitForSelector('#score-ext-btn', { timeout: 45000 });
   console.log(stamp(), 'PASS 注入：#score-ext-btn 出现');
 
-  // 2. 打开面板 + 本地引擎状态
+  // 2. 打开面板
   await page.click('#score-ext-btn');
   await page.waitForSelector('#score-ext-panel.se-open', { timeout: 10000 });
-  await page.waitForFunction(
-    () => (document.getElementById('se-status') || {}).textContent
-      && document.getElementById('se-status').textContent.includes('本地引擎'),
-    { timeout: 15000 });
   const status = await page.$eval('#se-status', el => el.textContent);
   console.log(stamp(), 'PASS 面板打开，状态:', JSON.stringify(status));
 

@@ -21,11 +21,16 @@
   <div id="ed-status" class="ed-status">正在初始化…</div>
 
   <div id="ed-result" class="ed-result">
+    <div class="ed-page-row">
+      <label for="ed-page-size">每页片段数（留空 = 全部一页）</label>
+      <input id="ed-page-size" type="number" min="1" step="1" placeholder="全部">
+    </div>
     <img id="ed-result-img" alt="合并结果">
     <div id="ed-downloads"></div>
   </div>
 
   <script src="src/b64.js"></script>
+  <script src="src/zip.js"></script>
   <script src="editor.js"></script>
 </body>
 </html>

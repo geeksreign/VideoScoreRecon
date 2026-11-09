@@ -7,7 +7,7 @@
 
 | 形态 | 说明 |
 |---|---|
-| **Python CLI / 本地服务** | `src/` — imageio + OpenCV 流水线，配浏览器扩展的"高级 HTTP 模式" |
+| **Python CLI / 可选服务** | `src/` — imageio + OpenCV 流水线（CLI / 可选 FastAPI 服务） |
 | **Chrome 扩展（主推）** | `extension/` — 纯浏览器实现：WebCodecs 解码 + OpenCV.js 检测去重 + canvas 拼接，**全部处理在本机完成，不上传任何数据**（见 [extension/PRIVACY.md](extension/PRIVACY.md)） |
 
 ## 快速开始（Chrome 扩展，零配置）
@@ -24,7 +24,7 @@
 uv sync
 uv run python src/main.py --video <本地路径或B站URL> [--interval-sec 2.5] [--start-time 30 --end-time 120]
 uv run pytest          # 43 例：检测/去重/拼接/任务队列
-cd src && uv run python -m server   # 本地服务（扩展高级 HTTP 模式）
+cd src && uv run python -m server   # 可选 FastAPI 服务
 ```
 
 ## 架构
@@ -38,7 +38,7 @@ Python（src/，参考实现与 oracle）              Chrome 扩展（extension
 │  ├ score_detect/pic_clip 检测 │ ───────► │ src/worker.js  Worker 流水线          │
 │  ├ dedup 相邻帧去重           │  fixtures │  ├ decode.js   mp4box+WebCodecs      │
 │  └ stitch_scores 纵向拼接     │  40 例    │  ├ pipeline/   OpenCV.js 移植        │
-│ server/ FastAPI（扩展 HTTP 模式）│          │  └ stitch.js   canvas 分段 PNG       │
+│ server/ FastAPI（可选）          │          │  └ stitch.js   canvas 分段 PNG       │
 └──────────────────────────────┘          └──────────────────────────────────────┘
 ```
 
@@ -63,9 +63,8 @@ node test/extension_smoke.mjs         # 真站冒烟（需可加载扩展的 Chr
 Chrome 137+ 的 headless/CDP 无法可靠加载 unpacked 扩展，真机注入请手动验收：
 
 1. 按「快速开始」加载 `extension/`
-2. 打开 B 站视频页 → 按钮出现 → 面板显示「本地引擎模式」
+2. 打开 B 站视频页 → 按钮出现 → 点击「🎼 提取乐谱」
 3. 一次完整提取：进度条走完 → 预览出现 → 下载 PNG 成功
-4. （可选）设置页填 `baseUrl=http://127.0.0.1:8000` + Token → 走 Python 服务高级模式
 
 > 扩展测试专用浏览器：`extension/.browsers/`（gitignore，`npx @puppeteer/browsers install
 > chrome@124.0.6367.207 --path .browsers` 后执行 `xattr -dr com.apple.quarantine .browsers`）。
@@ -86,7 +85,7 @@ cd extension && ./pack.sh     # 生成 dist/videoscore-<version>.zip（已排除
 src/                  Python 流水线 + FastAPI 服务（参考实现）
 extension/            Chrome 扩展（MV3，产品）
   manifest.json       权限：storage + bilibili/API/CDN host
-  content.js          注入 UI，本地/HTTP 双模式分流
+  content.js          注入 UI（本机流水线）
   editor.html|js|css  片段微调页（去重结果删/复制/排序/撤销 → 重新合并）
   src/acquire.js      视频源取流（默认480P: playurl 主取 / 嗅探兜底，设置页四档）
   src/worker.js       处理 Worker（解码→检测→去重→拼接）

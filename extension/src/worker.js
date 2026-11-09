@@ -115,13 +115,13 @@ function scaleRect(rect, sx, sy, gw, gh) {
 }
 
 /**
- * Stitcher 封段 → done 消息载荷（run 与编辑器 restitch 共用）
+ * segment 列表 → done 消息载荷
+ * @param {Array<{blob: Blob, width, height, from, to}>} list
  * @returns {Promise<{segments: Array<{buffer,width,height,from,to}>, transfer: ArrayBuffer[]}>}
  */
-async function segmentsToPayload(stitcher) {
-  const st = await stitcher.finish();
+async function segmentsPayload(list) {
   const segments = [];
-  for (const seg of st.segments) {
+  for (const seg of list) {
     const ab = await seg.blob.arrayBuffer();
     segments.push({
       buffer: ab, width: seg.width, height: seg.height,
@@ -129,6 +129,30 @@ async function segmentsToPayload(stitcher) {
     });
   }
   return { segments, transfer: segments.map((s) => s.buffer) };
+}
+
+/**
+ * Stitcher 封段 → done 消息载荷（run 与编辑器 restitch 共用）
+ * @returns {Promise<{segments: Array<{buffer,width,height,from,to}>, transfer: ArrayBuffer[]}>}
+ */
+async function segmentsToPayload(stitcher) {
+  const st = await stitcher.finish();
+  return segmentsPayload(st.segments);
+}
+
+/**
+ * 编辑器片段 PNG → BGR Mat（调用方负责 delete）
+ * @param {{png: ArrayBuffer}} c
+ * @returns {Promise<cv.Mat>} CV_8UC3
+ */
+async function cropPngToMat(c) {
+  const bmp = await createImageBitmap(new Blob([c.png], { type: 'image/png' }));
+  const w = bmp.width, h = bmp.height;
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close();
+  return rgbaToBgrMat(ctx.getImageData(0, 0, w, h));
 }
 
 async function run(buffer, params) {
@@ -354,37 +378,67 @@ async function run(buffer, params) {
 
 /**
  * 编辑器「重新合并」：给定已去重的 PNG 片段直接走 Stitcher——与产线 run()
- * 的合并语义逐像素一致（同一 VSR.Stitcher、同一顺序堆叠规则）
- * @param {Array<{png: ArrayBuffer, frame: number}>} crops
+ * 的合并语义逐像素一致（同一 VSR.Stitcher、同一顺序堆叠规则）。
+ *
+ * pageSize 为空/非法/>=总数 → 现状：所有片段合成一页；
+ * pageSize=n → 每 n 个片段一页（ceil(总数/n) 页），每页统一到该页最大宽度。
+ *
+ * @param {Array<{png: ArrayBuffer, width, height, frame: number}>} crops
+ * @param {number|null} pageSize
  */
-async function restitch(crops) {
+async function restitch(crops, pageSize) {
   cancelRequested = false;
   const n = crops.length;
   if (!n) { post({ type: 'error', message: '没有可合并的片段' }); return; }
-  const stitcher = new VSR.Stitcher();
-  for (let idx = 0; idx < n; idx++) {
-    if (cancelRequested) { post({ type: 'error', message: '已取消' }); return; }
-    const c = crops[idx];
-    const bmp = await createImageBitmap(new Blob([c.png], { type: 'image/png' }));
-    const w = bmp.width, h = bmp.height;
-    const cvCanvas = new OffscreenCanvas(w, h);
-    const ctx = cvCanvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
-    const img = ctx.getImageData(0, 0, w, h);
-    const mat = new cv.Mat(h, w, cv.CV_8UC3);
-    const d = mat.data, s = img.data;
-    for (let p = 0, q = 0; p < d.length; p += 3, q += 4) {
-      d[p] = s[q + 2]; d[p + 1] = s[q + 1]; d[p + 2] = s[q];
+
+  const paged = Number.isInteger(pageSize) && pageSize > 0 && pageSize < n;
+  const segments = [];
+  let done = 0;
+
+  const addOne = async (stitcher, c, maxW) => {
+    let mat = await cropPngToMat(c);
+    if (maxW && mat.cols !== maxW) {
+      const resized = new cv.Mat();
+      cv.resize(mat, resized, new cv.Size(maxW, mat.rows));
+      mat.delete();
+      mat = resized;
     }
     await stitcher.add(mat, c.frame);   // stitcher 内部 delete
-    post({ type: 'progress', stage: 'stitch', progress: (idx + 1) / n, message: `合并 ${idx + 1}/${n}` });
+    done++;
+    post({
+      type: 'progress', stage: 'stitch', progress: done / n,
+      message: `合并 ${done}/${n}`,
+    });
+  };
+
+  if (!paged) {
+    const stitcher = new VSR.Stitcher();
+    for (const c of crops) {
+      if (cancelRequested) { post({ type: 'error', message: '已取消' }); return; }
+      await addOne(stitcher, c, 0);
+    }
+    const payload = await segmentsToPayload(stitcher);
+    segments.push(...payload.segments);
+  } else {
+    for (let start = 0; start < n; start += pageSize) {
+      if (cancelRequested) { post({ type: 'error', message: '已取消' }); return; }
+      const group = crops.slice(start, start + pageSize);
+      const maxW = Math.max(...group.map((c) => c.width || 0));
+      const stitcher = new VSR.Stitcher();
+      for (const c of group) {
+        if (cancelRequested) { post({ type: 'error', message: '已取消' }); return; }
+        await addOne(stitcher, c, maxW);
+      }
+      const payload = await segmentsToPayload(stitcher);
+      segments.push(...payload.segments);
+    }
   }
-  const { segments, transfer } = await segmentsToPayload(stitcher);
+
   post({
     type: 'done', segments,
     saved: n, skipped: 0, frameNos: crops.map((c) => c.frame),
-  }, transfer);
+    pageSize: paged ? pageSize : null,
+  }, segments.map((s) => s.buffer));
 }
 
 self.onmessage = (e) => {
@@ -413,7 +467,7 @@ self.onmessage = (e) => {
     whenCvReady((cv) => {
       Promise.resolve().then(() => {
         if (!cv || !cv.Mat) throw new Error('OpenCV.js 初始化失败');
-        return restitch(msg.crops || []);
+        return restitch(msg.crops || [], msg.pageSize);
       }).catch((err) => {
         post({ type: 'error', message: String(err && err.message || err) });
       });

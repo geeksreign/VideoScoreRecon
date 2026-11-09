@@ -75,16 +75,26 @@ window.VSRAcquire = {
     }
   }
 
+  async function waitPanelOpen(timeoutMs) {
+    const t0 = Date.now();
+    for (;;) {
+      const p = document.getElementById('score-ext-panel');
+      if (p && p.classList.contains('se-open')) return;
+      if (Date.now() - t0 > timeoutMs) throw new Error('waitPanelOpen 超时');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
   async function main() {
     // 1. UI 注入
     const btn = document.getElementById('score-ext-btn');
     step('ui_injected', btn, btn ? '' : '无按钮');
     if (!btn) throw new Error('no button');
 
-    // 2. 面板打开 + 本地引擎状态
+    // 2. 面板打开
     btn.click();
-    await waitStatus((s) => s.includes('本地引擎'), 8000);
-    step('panel_local_mode', true, '本地引擎状态文案');
+    await waitPanelOpen(8000);
+    step('panel_open', true, '');
 
     // 3. 缩小参数跑真实 worker 链（mock acquire 提供视频；抽帧间隔走默认 2.5s）
     document.getElementById('se-end').value = '15';
@@ -109,7 +119,7 @@ window.VSRAcquire = {
 
     // 4.5 片段微调入口（真 worker keptCrops → content 按钮链路）
     const editBtn = document.getElementById('se-edit-btn');
-    step('edit_entry', !!editBtn && /微调片段后合并/.test(editBtn.textContent),
+    step('edit_entry', !!editBtn && /手动调整片段/.test(editBtn.textContent),
       editBtn ? editBtn.textContent : '按钮缺失');
 
     // 4.6 点击入口 → MessagePort 交二进制载荷（真实链路=port→background 存→tabs.create）

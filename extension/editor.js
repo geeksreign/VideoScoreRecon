@@ -105,13 +105,13 @@
     }
     if (m.type === 'done') {
       state.merging = false;
-      showResult(m);
       render();
+      showResult(m).catch((e) => setStatus('❌ ' + ((e && e.message) || e)));
     }
     // 其余（debug 等）忽略
   }
 
-  function showResult(m) {
+  async function showResult(m) {
     const segs = m.segments || [];
     if (!segs.length) {
       setStatus('❌ 合并结果为空');
@@ -121,20 +121,39 @@
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '');
     const dl = $('ed-downloads');
     dl.innerHTML = '';
-    segs.forEach((s, idx) => {
-      const url = URL.createObjectURL(new Blob([s.buffer], { type: 'image/png' }));
-      state.resultUrls.push(url);
-      if (idx === 0) $('ed-result-img').src = url;
+    // 预览始终用第 1 页
+    const firstUrl = URL.createObjectURL(new Blob([segs[0].buffer], { type: 'image/png' }));
+    state.resultUrls.push(firstUrl);
+    $('ed-result-img').src = firstUrl;
+    if (segs.length === 1) {
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `score_${stamp}${segs.length > 1 ? `_p${idx + 1}` : ''}.png`;
-      a.textContent = segs.length > 1
-        ? `下载分段 ${idx + 1}/${segs.length}（${s.height}px，帧 ${s.from}-${s.to}）`
-        : `下载拼接图（${s.width}x${s.height}）`;
+      a.href = firstUrl;
+      a.download = `score_${stamp}.png`;
+      a.textContent = '下载';
       dl.appendChild(a);
-    });
+    } else {
+      // 多页 → 一个 zip 一次下载全部页
+      const files = segs.map((s, idx) => ({
+        name: `score_${stamp}_p${idx + 1}.png`, buffer: s.buffer,
+      }));
+      const zipUrl = URL.createObjectURL(VSRZip.build(files));
+      state.resultUrls.push(zipUrl);
+      const a = document.createElement('a');
+      a.href = zipUrl;
+      a.download = `score_${stamp}.zip`;
+      a.textContent = `下载（${segs.length} 页）`;
+      dl.appendChild(a);
+    }
     $('ed-result').classList.add('ed-visible');
-    setStatus(`✅ 合并完成：${segs.length} 段输出（基于当前 ${state.items.length} 个片段）`);
+    const total = state.items.length;
+    setStatus(m.pageSize
+      ? `✅ 合并完成：${segs.length} 页（每页 ${m.pageSize} 个片段，共 ${total} 个）`
+      : `✅ 合并完成：${segs.length} 段输出（基于当前 ${total} 个片段）`);
+  }
+
+  function readPageSize() {
+    const n = parseInt(($('ed-page-size').value || '').trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
   }
 
   function merge() {
@@ -144,6 +163,7 @@
     setStatus('合并中…（首次需加载引擎，约几秒）');
     ensureWorker().postMessage({
       cmd: 'stitch',
+      pageSize: readPageSize(),
       // 不转移：克隆发送，state.items 保留可再次编辑/合并
       crops: state.items.map(({ png, width, height, frame }) => ({ png, width, height, frame })),
     });
@@ -158,6 +178,8 @@
     revoke(state.resultUrls);
     $('ed-result').classList.remove('ed-visible');
     $('ed-downloads').innerHTML = '';
+    $('ed-page-size').value = '';
+    clearTimeout(reMergeTimer);
     state.items = crops.map((c) => ({
       png: c.png, width: c.width, height: c.height, frame: c.frame, uid: state.uid++,
     }));
@@ -175,6 +197,14 @@
     setStatus('已撤销上一步');
   });
   $('ed-merge').addEventListener('click', merge);
+  // 每页片段数变化：已有合并结果时自动防抖重新合并
+  let reMergeTimer = null;
+  $('ed-page-size').addEventListener('input', () => {
+    clearTimeout(reMergeTimer);
+    if (!state.items.length || state.merging) return;
+    if (!$('ed-result').classList.contains('ed-visible')) return;
+    reMergeTimer = setTimeout(() => { if (!state.merging) merge(); }, 400);
+  });
   $('ed-close').addEventListener('click', () => window.close());
 
   // 自动化测试钩子
@@ -193,7 +223,7 @@
         settled = true;
         try { port.disconnect(); } catch (e) { /* ignore */ }
         if (crops && crops.length) load(crops);
-        else setStatus('没有待编辑的片段——请先在提取结果页完成一次提取，再点「✂️ 微调片段后合并」');
+        else setStatus('没有待编辑的片段——请先在提取结果页完成一次提取，再点「✂️ 手动调整片段」');
       };
       const fail = (why) => {
         if (settled) return;
@@ -216,6 +246,6 @@
       port.postMessage({ type: 'get' });
     } catch (e) { setStatus('❌ ' + ((e && e.message) || e)); }
   } else {
-    setStatus('请在提取结果页点「✂️ 微调片段后合并」进入（测试可经 VSREditor.load 注入）');
+    setStatus('请在提取结果页点「✂️ 手动调整片段」进入（测试可经 VSREditor.load 注入）');
   }
 })();

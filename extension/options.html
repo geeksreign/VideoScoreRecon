@@ -22,7 +22,7 @@
     <b>推荐用法（默认，零配置）</b>：<br>
     1. 打开任意 B 站视频页，点右下角「🎼 提取乐谱」<br>
     2. 填写时间范围（可空），点「开始提取」<br>
-    3. 完成后预览、下载拼接长图——全部在本机浏览器完成，不上传任何数据
+    3. 完成后预览、下载拼接长图——不上传任何数据
   </div>
 
   <h2>视频画质（提取用）</h2>
@@ -38,19 +38,8 @@
   <label>秒数；越小抽得越密、耗时越长。留空 = 默认 2.5</label>
   <input id="interval" type="number" min="0.1" step="0.1" placeholder="2.5">
 
-  <h2>高级：本地 Python 服务（可选）</h2>
-  <label>服务地址（留空 = 使用内置本地引擎）</label>
-  <input id="baseUrl" placeholder="留空即可；如 http://127.0.0.1:8000">
-  <label>服务 Token（启动服务时终端会打印）</label>
-  <input id="token" placeholder="仅 HTTP 模式需要：cd src && uv run python -m server">
-  <label>B 站 Cookie（SESSDATA，可空，仅 HTTP 模式提画质用）</label>
-  <input id="cookie" placeholder="SESSDATA 值（可带或不带 SESSDATA= 前缀）">
   <button id="save">保存</button>
   <div id="status"></div>
-  <div class="hint">
-    本地 Python 服务模式说明：在项目目录执行 <code>cd src && uv run python -m server</code>，
-    把终端打印的 Token 填到上方。此模式由 Python/OpenCV 处理，适合开发者调试流水线。
-  </div>
 
   <h2>下载失败时：授权全网访问（可选）</h2>
   <div class="hint">

@@ -1,10 +1,7 @@
 // 内容脚本：在 B 站视频页注入“提取乐谱”按钮与面板
 //
-// 双模式（options 页 baseUrl 决定）：
-//   - baseUrl 留空（默认）= 纯浏览器本地：acquire 按设置画质取流（默认 480P）→ 扩展 Worker 全流水线
-//   - baseUrl 非空 = 高级：交给本地 Python 服务（老流程）
+// 纯浏览器本机处理：acquire 按设置画质取流（默认 480P）→ 扩展 Worker 全流水线
 (() => {
-  const DEFAULT_BASE = '';   // '' = 本地模式
 
   let ctxDead = false;   // 经验证的真失效（扩展被重载/禁用）
 
@@ -67,13 +64,10 @@
   function getCfg() {
     return new Promise((resolve, reject) => {
       try {
-        chrome.storage.local.get(['baseUrl', 'token', 'cookie', 'quality', 'interval'], (cfg) => {
+        chrome.storage.local.get(['quality', 'interval'], (cfg) => {
           const err = chrome.runtime.lastError;
           if (err) { reject(ctxErr(new Error(err.message))); return; }
           resolve({
-            baseUrl: (cfg.baseUrl || DEFAULT_BASE).trim(),
-            token: cfg.token || '',
-            cookie: cfg.cookie || '',
             quality: cfg.quality || '480',   // 设置页「视频画质」，未设置=480P
             interval: cfg.interval || '',    // 设置页「抽帧间隔」，空=默认2.5s
           });
@@ -122,15 +116,6 @@
     });
     document.querySelector('#score-ext-panel .se-actions').appendChild(btn);
     return true;
-  }
-
-  async function api(path, opts = {}) {
-    const cfg = await getCfg();
-    const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    if (cfg.token) headers['X-Auth-Token'] = cfg.token;
-    const r = await fetch(cfg.baseUrl + path, Object.assign({ headers }, opts));
-    const data = await r.json().catch(() => null);
-    return { ok: r.ok, status: r.status, data };
   }
 
   function parseTime(v) {
@@ -199,7 +184,6 @@
 
     panel.querySelector('#se-start-btn').addEventListener('click', startExtract);
     panel.querySelector('#se-close-btn').addEventListener('click', togglePanel);
-    checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
   }
 
   /** 秒 → `m:ss` / `h:mm:ss`（向上取整，保证自动值覆盖全片） */
@@ -250,10 +234,7 @@
   function togglePanel() {
     const panel = document.getElementById('score-ext-panel');
     const open = panel.classList.toggle('se-open');
-    if (open) {
-      fillEndTime();
-      checkHealth().catch((e) => setStatus('⚠️ ' + ctxErr(e).message));
-    }
+    if (open) fillEndTime();
   }
 
   function setStatus(msg) {
@@ -272,20 +253,6 @@
     setStatus(`${stage}: ${message || ''} (${Math.round(progress * 100)}%)`);
   }
 
-  async function checkHealth() {
-    const cfg = await getCfg();
-    if (!cfg.baseUrl) {
-      setStatus('✅ 本地引擎模式（全部处理在本机浏览器完成）');
-      return;
-    }
-    const r = await api('/api/health').catch(() => ({ ok: false }));
-    if (r.ok) {
-      setStatus('✅ 本地服务已连接（高级 HTTP 模式）');
-    } else {
-      setStatus('⚠️ 本地服务未连接。请先在终端启动：\ncd src && uv run python -m server\n并在设置页填写 Token。');
-    }
-  }
-
   async function startExtract() {
     if (polling) {
       setStatus('⏳ 上一次提取仍在进行中…');
@@ -299,28 +266,7 @@
       releaseResultUrls();
       lastKeptCrops = null;
       document.getElementById('se-downloads').innerHTML = '';
-      if (!cfg.baseUrl) {
-        await localExtract(cfg);
-        return;
-      }
-      // ---- 高级 HTTP 模式（老流程）----
-      const p = document.getElementById('score-ext-panel');
-      const payload = {
-        url: location.href,
-        start_time: parseTime(p.querySelector('#se-start').value),
-        end_time: parseTime(p.querySelector('#se-end').value),
-        interval_sec: parseInterval(cfg.interval),   // 设置页 storage.interval，空=2.5
-        dedup_threshold: 0.01,      // 去重阈值默认值（面板不再暴露）
-        cookie: cfg.cookie || undefined,   // SESSDATA 由设置页维护到 storage
-      };
-      setStatus('提交任务...');
-      const r = await api('/api/extract', { method: 'POST', body: JSON.stringify(payload) });
-      if (!r.ok) {
-        setStatus(`提交失败 (${r.status}): ${(r.data && r.data.detail) || '未知错误'}`);
-        return;
-      }
-      setStatus(`已提交，任务 ${r.data.job_id}`);
-      poll(r.data.job_id).catch((e) => setStatus('❌ 失败: ' + ctxErr(e).message));
+      await localExtract(cfg);
     } catch (e) {
       // chrome.* API 在扩展被重载后会抛 Extension context invalidated
       setProgress('error', 0, '');
@@ -394,7 +340,7 @@
     });
   }
 
-  // ---------- 本地模式 ----------
+  // ---------- 提取流水线 ----------
   async function localExtract(cfg) {
     polling = true;
     const p = document.getElementById('score-ext-panel');
@@ -486,16 +432,16 @@
       a.href = url;
       a.download = `score_${stamp}${segs.length > 1 ? `_p${idx + 1}` : ''}.png`;
       a.textContent = segs.length > 1
-        ? `下载分段 ${idx + 1}/${segs.length}（${s.height}px，帧 ${s.from}-${s.to}）`
-        : `下载拼接图（${s.width}x${s.height}）`;
+        ? `下载 ${idx + 1}/${segs.length}`
+        : '下载';
       dl.appendChild(a);
     });
-    // 片段微调入口（仅本地模式、keptCrops 非空时出现）
+    // 手动调整入口（keptCrops 非空时出现）
     if (result.keptCrops && result.keptCrops.length) {
       lastKeptCrops = result.keptCrops;
       const editBtn = document.createElement('button');
       editBtn.id = 'se-edit-btn';
-      editBtn.textContent = `✂️ 微调片段后合并（${result.keptCrops.length} 张）`;
+      editBtn.textContent = `✂️ 手动调整片段（${result.keptCrops.length} 张）`;
       editBtn.addEventListener('click', openEditor);
       dl.appendChild(editBtn);
     } else {
@@ -504,59 +450,6 @@
     document.getElementById('se-result').classList.add('se-visible');
     setStatus(`✅ 完成：保留 ${result.saved} 张，去重 ${result.skipped} 张`
       + (segs.length > 1 ? `，分 ${segs.length} 段输出` : ''));
-  }
-
-  // ---------- 高级 HTTP 模式 ----------
-  async function poll(jobId) {
-    polling = true;
-    try {
-      for (;;) {
-        const r = await api(`/api/progress/${jobId}`);
-        if (!r.ok) {
-          setStatus(`查询失败 (${r.status})`);
-          break;
-        }
-        const d = r.data;
-        setProgress(d.stage, d.progress, d.message);
-        if (d.done) {
-          if (d.stage === 'error') {
-            setStatus(`❌ 失败: ${d.error}`);
-          } else {
-            setStatus('✅ 完成，正在加载结果...');
-            await showResult(jobId);
-          }
-          break;
-        }
-        await new Promise((res) => setTimeout(res, 1000));
-      }
-    } finally {
-      polling = false;
-    }
-  }
-
-  async function showResult(jobId) {
-    const cfg = await getCfg();
-    const r = await fetch(cfg.baseUrl + '/api/result/' + jobId, {
-      headers: cfg.token ? { 'X-Auth-Token': cfg.token } : {},
-    });
-    if (!r.ok) {
-      setStatus(`获取结果失败 (${r.status})`);
-      return;
-    }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    resultUrls.push(url);
-    const resultEl = document.getElementById('se-result');
-    resultEl.querySelector('#se-result-img').src = url;
-    const dl = document.getElementById('se-downloads');
-    dl.innerHTML = '';
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `score_${jobId}.png`;
-    a.textContent = '下载拼接图';
-    dl.appendChild(a);
-    resultEl.classList.add('se-visible');
-    setStatus('✅ 完成');
   }
 
   // 页面加载后注入

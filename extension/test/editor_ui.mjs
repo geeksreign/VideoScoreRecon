@@ -132,6 +132,63 @@ try {
   step('remerge', secondHref.startsWith('blob:') && secondHref !== firstHref
     && itemsAfter.join(',') === '100,200,300', `items=${itemsAfter.join(',')}`);
 
+  // 8. 每页 2 个片段 → 自动重合并 → 2 页 zip
+  const setPageSize = (v) => page.evaluate((val) => {
+    const el = document.getElementById('ed-page-size');
+    el.value = val;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, v);
+  await setPageSize('2');
+  await page.waitForFunction(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return a && /\.zip$/.test(a.download) && /2 页/.test(a.textContent);
+  }, { timeout: 60000, polling: 300 });
+  const paged2 = await page.evaluate(async () => {
+    const a = document.querySelector('#ed-downloads a');
+    const buf = await (await fetch(a.href)).arrayBuffer();
+    const u = new Uint8Array(buf, 0, 4);
+    const dv = new DataView(buf);
+    return {
+      download: a.download, text: a.textContent,
+      links: document.querySelectorAll('#ed-downloads a').length,
+      pk: u[0] === 0x50 && u[1] === 0x4b && u[2] === 0x03 && u[3] === 0x04,
+      entries: dv.getUint16(buf.byteLength - 12, true),
+    };
+  });
+  step('page_2_zip', paged2.links === 1 && /\.zip$/.test(paged2.download)
+    && paged2.pk && paged2.entries === 2 && /2 页/.test(paged2.text),
+  JSON.stringify(paged2).slice(0, 240));
+
+  // 9. 每页 1 个片段 → 3 页 zip
+  await setPageSize('1');
+  await page.waitForFunction(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return a && /\.zip$/.test(a.download) && /3 页/.test(a.textContent);
+  }, { timeout: 60000, polling: 300 });
+  const paged1 = await page.evaluate(async () => {
+    const a = document.querySelector('#ed-downloads a');
+    const buf = await (await fetch(a.href)).arrayBuffer();
+    const dv = new DataView(buf);
+    return { entries: dv.getUint16(buf.byteLength - 12, true), text: a.textContent };
+  });
+  step('page_1_zip_3', paged1.entries === 3 && /3 页/.test(paged1.text), JSON.stringify(paged1));
+
+  // 10. 清空 → 回到单页 PNG
+  await setPageSize('');
+  await page.waitForFunction(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return a && /\.png$/.test(a.download) && a.textContent === '下载';
+  }, { timeout: 60000, polling: 300 });
+  const back = await page.evaluate(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return {
+      download: a.download, text: a.textContent,
+      links: document.querySelectorAll('#ed-downloads a').length,
+    };
+  });
+  step('page_empty_png', back.links === 1 && /\.png$/.test(back.download)
+    && back.text === '下载', JSON.stringify(back));
+
   code = code === 1 ? 1 : 0;
 } catch (e) {
   console.error('DRIVER FAIL:', e.message);
