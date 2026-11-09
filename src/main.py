@@ -34,7 +34,7 @@ def main():
     ap = argparse.ArgumentParser(description='从视频中抽取并裁剪曲谱区域（相邻帧去重+拼接）')
     ap.add_argument('--video', required=True, help='输入视频路径或 B 站 URL')
     ap.add_argument('--data-dir', default=str(DEFAULT_DATA), help='数据根目录（默认 <repo>/data）')
-    ap.add_argument('--interval-sec', type=float, default=2.5, help='抽帧间隔秒数（默认 2.5）')
+    ap.add_argument('--interval-sec', type=float, default=3, help='抽帧间隔秒数（默认 3）')
     ap.add_argument('--dedup-threshold', type=float, default=0.01, help='曲谱骨架差异占比阈值（默认 0.01=1%%）')
     ap.add_argument('--no-stitch', action='store_true', help='跳过最终拼接')
     ap.add_argument('--start-time', type=_time_arg, default=None, help='截取开始时间（秒或 mm:ss，默认视频开头）')

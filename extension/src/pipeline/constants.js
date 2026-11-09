@@ -36,6 +36,10 @@ VSR.CONST = Object.freeze({
   // 编排（video_io.extract_and_crop / pipeline.run_pipeline）
   DEFAULT_INTERVAL: 2.5,
   DEFAULT_DEDUP_THRESHOLD: 0.01,
+  // worker 编排（非 Python 契约）：检测/去重统一工作宽度。
+  // 852 对齐 Python 480p 基线与本目录 parity fixture；源宽 <= 852 时不放大。
+  // 保留帧仍按源分辨率裁剪，输出画质不受影响。
+  WORK_MAX_WIDTH: 852,
 });
 
 console.log('[load] constants.js');

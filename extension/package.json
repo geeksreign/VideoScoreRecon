@@ -7,6 +7,7 @@
     "test": "node test/run.mjs",
     "test:acquire": "node test/acquire_fallback.mjs",
     "test:e2e": "node test/decode_run.mjs",
+    "test:e2e:720": "VSR_VIDEO='/data/Gary Moore Style in A_哔哩哔哩_bilibili/video/Gary Moore Style in A_哔哩哔哩_bilibili.mp4' VSR_RES=1280x4790 node test/decode_run.mjs",
     "test:ui": "node test/page_ui.mjs",
     "test:editor": "node test/editor_ui.mjs",
     "test:smoke": "node test/extension_smoke.mjs",

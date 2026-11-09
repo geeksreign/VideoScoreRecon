@@ -14,6 +14,12 @@
     res: [852, 3213],   // [w, h]
     fps: 25,
   };
+  // 可选覆盖（720p 等源回归）；不传时保持 480p 默认契约
+  const Q = new URLSearchParams(location.search);
+  const VIDEO_URL = Q.get('video')
+    || '/data/Gary%20Moore%20Style%20in%20A/video/Gary%20Moore%20Style%20in%20A.mp4';
+  if (Q.get('saved')) EXPECT.saved = Number(Q.get('saved'));
+  if (Q.get('res')) EXPECT.res = Q.get('res').split('x').map(Number);
   const outEl = document.getElementById('out');
   const log = [];
   function finish(obj) {
@@ -26,7 +32,7 @@
   }
 
   async function main() {
-    const url = '/data/Gary%20Moore%20Style%20in%20A/video/Gary%20Moore%20Style%20in%20A.mp4';
+    const url = VIDEO_URL;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('fetch video HTTP ' + resp.status);
     const buf = await resp.arrayBuffer();

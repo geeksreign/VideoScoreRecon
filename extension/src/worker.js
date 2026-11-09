@@ -80,6 +80,41 @@ async function matToPng(mat) {
 }
 
 /**
+ * ImageData(RGBA) → BGR Mat（流水线统一按 Python 的 BGR 语义）
+ * @param {ImageData} img
+ * @returns {cv.Mat} CV_8UC3（调用方负责 delete）
+ */
+function rgbaToBgrMat(img) {
+  const w = img.width, h = img.height, s = img.data;
+  const bgr = new cv.Mat(h, w, cv.CV_8UC3);
+  const d = bgr.data;
+  for (let p = 0, q = 0; p < d.length; p += 3, q += 4) {
+    d[p] = s[q + 2];
+    d[p + 1] = s[q + 1];
+    d[p + 2] = s[q];
+  }
+  return bgr;
+}
+
+/**
+ * 工作分辨率 rect → 源分辨率 rect（四舍五入 + clamp 到 [0,gw]×[0,gh]）
+ * @param {{x,y,w,h}} rect
+ * @param {number} sx 源宽/工作宽
+ * @param {number} sy 源高/工作高
+ */
+function scaleRect(rect, sx, sy, gw, gh) {
+  const x = Math.max(0, Math.round(rect.x * sx));
+  const y = Math.max(0, Math.round(rect.y * sy));
+  const w = Math.max(1, Math.round(rect.w * sx));
+  const h = Math.max(1, Math.round(rect.h * sy));
+  return {
+    x, y,
+    w: Math.min(gw, x + w) - x,
+    h: Math.min(gh, y + h) - y,
+  };
+}
+
+/**
  * Stitcher 封段 → done 消息载荷（run 与编辑器 restitch 共用）
  * @returns {Promise<{segments: Array<{buffer,width,height,from,to}>, transfer: ArrayBuffer[]}>}
  */
@@ -128,8 +163,20 @@ async function run(buffer, params) {
     progress('extract', Math.min(1, i / totalFrames), forceMsg || `抽帧 ${i}/${totalFrames}`);
   };
 
-  const canvas = new OffscreenCanvas(2, 2);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  // 工作画布：检测/去重统一在固定工作分辨率上跑（WORK_MAX_WIDTH，源宽<=该值不放大）。
+  // 全分辨率画布懒创建，仅在保留帧（约 6 张）与诊断帧上重建，输出仍保持源分辨率。
+  const workCanvas = new OffscreenCanvas(2, 2);
+  const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+  let fullCanvas = null, fullCtx = null;
+  const ensureFullCanvas = (w, h) => {
+    if (!fullCanvas) {
+      fullCanvas = new OffscreenCanvas(w, h);
+      fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+    } else if (fullCanvas.width !== w || fullCanvas.height !== h) {
+      fullCanvas.width = w;
+      fullCanvas.height = h;
+    }
+  };
 
   const result = await VSR.decodeVideo(buffer, {
     onMeta: (m) => {
@@ -186,22 +233,28 @@ async function run(buffer, params) {
       // 853 而 tkhd 为 852，两解码栈差 1px——以 meta 为准，源裁剪不重采样。
       const gw = (meta && meta.width) ? meta.width : bmp.width;
       const gh = (meta && meta.height) ? meta.height : bmp.height;
-      if (canvas.width !== gw || canvas.height !== gh) {
-        canvas.width = gw;
-        canvas.height = gh;
-      }
       const sw = Math.min(bmp.width, gw), sh = Math.min(bmp.height, gh);
-      ctx.drawImage(bmp, 0, 0, sw, sh, 0, 0, gw, gh);
-      bmp.close();
-      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      // 工作分辨率：检测/去重固定宽度（源宽 <= WORK_MAX_WIDTH 时不放大）
+      const workW = Math.min(gw, VSR.CONST.WORK_MAX_WIDTH);
+      const workH = Math.max(1, Math.round(gh * workW / gw));
+      const fullRes = (workW === gw && workH === gh);
+      if (workCanvas.width !== workW || workCanvas.height !== workH) {
+        workCanvas.width = workW;
+        workCanvas.height = workH;
+      }
+      workCtx.drawImage(bmp, 0, 0, sw, sh, 0, 0, workW, workH);
+      const workImg = workCtx.getImageData(0, 0, workW, workH);
       if (i === 0) console.log('[vsr] onSample(0) getImageData done');
+
       // 诊断图：帧0 + 过半首个抽帧 → dataURL 发宿主（排查 rect 全 null 用）
       const wantImg = i === 0
         || (i !== 0 && !dbgMidDone && meta && i >= meta.nbSamples / 2);
       if (wantImg) {
         if (i !== 0) dbgMidDone = true;
         try {
-          const blob = await canvas.convertToBlob({ type: 'image/png' });
+          ensureFullCanvas(gw, gh);
+          fullCtx.drawImage(bmp, 0, 0, sw, sh, 0, 0, gw, gh);
+          const blob = await fullCanvas.convertToBlob({ type: 'image/png' });
           const dataUrl = await new Promise((res) => {
             const fr = new FileReader();
             fr.onload = () => res(fr.result);
@@ -215,46 +268,60 @@ async function run(buffer, params) {
         dbgSent = true;
         post({
           type: 'debug', phase: 'frame0',
-          bmp: [img.width, img.height], disp, coded,
+          bmp: [gw, gh], disp, coded,
           meta: meta ? [meta.width, meta.height] : null,
         });
       }
 
-      // RGBA → BGR（流水线全部按 Python 的 BGR 语义）
-      const bgr = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC3);
-      const d = bgr.data, s = img.data;
-      for (let p = 0, q = 0; p < d.length; p += 3, q += 4) {
-        d[p] = s[q + 2];
-        d[p + 1] = s[q + 1];
-        d[p + 2] = s[q];
-      }
+      // 检测/去重全部在 work 尺寸上做（RGBA → BGR，流水线统一 BGR 语义）
+      const workBgr = rgbaToBgrMat(workImg);
       const gray = new cv.Mat();
-      cv.cvtColor(bgr, gray, cv.COLOR_BGR2GRAY);
+      cv.cvtColor(workBgr, gray, cv.COLOR_BGR2GRAY);
       if (i === 0) console.log('[vsr] onSample(0) cvtColor done');
       const rect = VSR.findScoreRect(gray);
       gray.delete();
       if (i === 0) console.log('[vsr] onSample(0) findScoreRect done ' + JSON.stringify(rect));
-      const crop = VSR.cropScore(bgr, rect);
-      if (i === 0) console.log('[vsr] onSample(0) cropScore done crop=' + (crop ? 'mat' : 'null'));
-      bgr.delete();
+      const workCrop = VSR.cropScore(workBgr, rect);
+      if (i === 0) console.log('[vsr] onSample(0) cropScore done crop=' + (workCrop ? 'mat' : 'null'));
+      workBgr.delete();
       if (i === 0) console.log('[vsr] onSample(0) bgr.delete done');
-      if (crop) {
-        const { isNew } = dedup.add(crop);
+      if (workCrop) {
+        const { isNew } = dedup.add(workCrop);
         if (i === 0) console.log('[vsr] onSample(0) dedup done isNew=' + isNew);
         if (isNew) {
+          // 保留帧按源分辨率裁剪（work==full 时直接复用，省一次绘制）
+          let fullCrop;
+          if (fullRes) {
+            fullCrop = workCrop;
+          } else {
+            ensureFullCanvas(gw, gh);
+            fullCtx.drawImage(bmp, 0, 0, sw, sh, 0, 0, gw, gh);
+            const fullImg = fullCtx.getImageData(0, 0, gw, gh);
+            const fullBgr = rgbaToBgrMat(fullImg);
+            fullCrop = VSR.cropScore(
+              fullBgr, scaleRect(rect, gw / workW, gh / workH, gw, gh));
+            fullBgr.delete();
+            if (fullCrop) {
+              workCrop.delete();
+            } else {
+              console.log('[vsr] 全分辨率裁剪为空 @' + i + '，回退工作分辨率');
+              fullCrop = workCrop;
+            }
+          }
           // 进 stitcher（接管删除）之前先编码 PNG——编辑器“片段微调”的数据来源
           keptCrops.push({
-            png: await matToPng(crop), width: crop.cols, height: crop.rows, frame: i,
+            png: await matToPng(fullCrop), width: fullCrop.cols, height: fullCrop.rows, frame: i,
           });
-          await stitcher.add(crop, i);   // stitcher 内部 delete
+          await stitcher.add(fullCrop, i);   // stitcher 内部 delete
           if (i === 0) console.log('[vsr] onSample(0) stitch done');
           saved++;
           frameNos.push(i);
         } else {
-          crop.delete();
+          workCrop.delete();
           skipped++;
         }
       }
+      bmp.close();
       tick(i);
       if (i === 0) console.log('[vsr] onSample(0) tick done');
     },

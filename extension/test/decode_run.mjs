@@ -49,7 +49,13 @@ page.on('console', m => console.log(stamp(), '[console]', m.text()));
 
 let exitCode = 1;
 try {
-  await page.goto(`http://127.0.0.1:${port}/extension/test/decode.html`,
+  // 可选覆盖（720p/其他源回归）：VSR_VIDEO=视频相对路径 VSR_RES=宽x高 VSR_SAVED=期望张数
+  const qs = new URLSearchParams();
+  if (process.env.VSR_VIDEO) qs.set('video', process.env.VSR_VIDEO);
+  if (process.env.VSR_RES) qs.set('res', process.env.VSR_RES);
+  if (process.env.VSR_SAVED) qs.set('saved', process.env.VSR_SAVED);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  await page.goto(`http://127.0.0.1:${port}/extension/test/decode.html${suffix}`,
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('#out[data-done="1"]', { timeout: 240000 });
   const result = JSON.parse(await page.$eval('#out', el => el.textContent));
