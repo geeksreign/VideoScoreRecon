@@ -116,13 +116,15 @@
 #score-ext-panel #se-downloads a,
 #score-ext-panel #se-edit-btn {
   flex: 1 1 0;
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
-  text-align: center;
   margin-top: 0;
   padding: 8px;
   border-radius: 6px;
   font-size: 13px;
+  line-height: 1.2;
 }
 #score-ext-panel #se-downloads a {
   background: #00aeec;

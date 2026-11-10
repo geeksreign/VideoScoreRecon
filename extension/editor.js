@@ -13,6 +13,7 @@
     resultUrls: [],   // 合并结果 objectURL
     uid: 1,
     merging: false,
+    confirmedPageSize: null,   // 上次成功合并使用的每页片段数（null=全部一页）
   };
   const $ = (id) => document.getElementById(id);
 
@@ -144,11 +145,23 @@
       a.textContent = `下载（${segs.length} 页）`;
       dl.appendChild(a);
     }
-    $('ed-result').classList.add('ed-visible');
     const total = state.items.length;
-    setStatus(m.pageSize
-      ? `✅ 合并完成：${segs.length} 页（每页 ${m.pageSize} 个片段，共 ${total} 个）`
-      : `✅ 合并完成：${segs.length} 段输出（基于当前 ${total} 个片段）`);
+    state.confirmedPageSize = m.pageSize || null;
+    const confirmed = state.confirmedPageSize || null;
+    const cur = readPageSize();
+    $('ed-result').classList.add('ed-visible');
+    const body = $('ed-result-body');
+    if (cur === confirmed) {
+      body.classList.add('ed-visible');
+      setStatus(m.pageSize
+        ? `✅ 合并完成：${segs.length} 页（每页 ${m.pageSize} 个片段，共 ${total} 个）`
+        : `✅ 合并完成：${segs.length} 段输出（基于当前 ${total} 个片段）`);
+    } else {
+      // 合并期间输入被改动：结果先不展示，等确认
+      body.classList.remove('ed-visible');
+      $('ed-downloads').innerHTML = '';
+      setStatus('已修改每页片段数，点「确认」后重新分页');
+    }
   }
 
   function readPageSize() {
@@ -179,7 +192,8 @@
     $('ed-result').classList.remove('ed-visible');
     $('ed-downloads').innerHTML = '';
     $('ed-page-size').value = '';
-    clearTimeout(reMergeTimer);
+    state.confirmedPageSize = null;
+    $('ed-result-body').classList.remove('ed-visible');
     state.items = crops.map((c) => ({
       png: c.png, width: c.width, height: c.height, frame: c.frame, uid: state.uid++,
     }));
@@ -197,13 +211,18 @@
     setStatus('已撤销上一步');
   });
   $('ed-merge').addEventListener('click', merge);
-  // 每页片段数变化：已有合并结果时自动防抖重新合并
-  let reMergeTimer = null;
+  // 每页片段数变化：不自动合并；隐藏旧结果，点「确认」后才重新分页并展示
   $('ed-page-size').addEventListener('input', () => {
-    clearTimeout(reMergeTimer);
     if (!state.items.length || state.merging) return;
     if (!$('ed-result').classList.contains('ed-visible')) return;
-    reMergeTimer = setTimeout(() => { if (!state.merging) merge(); }, 400);
+    revoke(state.resultUrls);
+    $('ed-result-body').classList.remove('ed-visible');
+    $('ed-downloads').innerHTML = '';
+    setStatus('已修改每页片段数，点「确认」后重新分页');
+  });
+  $('ed-page-confirm').addEventListener('click', () => {
+    if (state.merging || !state.items.length) return;
+    merge();
   });
   $('ed-close').addEventListener('click', () => window.close());
 

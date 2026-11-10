@@ -119,7 +119,7 @@ window.VSRAcquire = {
 
     // 4.5 片段微调入口（真 worker keptCrops → content 按钮链路）
     const editBtn = document.getElementById('se-edit-btn');
-    step('edit_entry', !!editBtn && /手动调整片段/.test(editBtn.textContent),
+    step('edit_entry', !!editBtn && editBtn.textContent === '✂️ 手动调整片段',
       editBtn ? editBtn.textContent : '按钮缺失');
 
     // 4.6 点击入口 → MessagePort 交二进制载荷（真实链路=port→background 存→tabs.create）

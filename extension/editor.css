@@ -32,10 +32,16 @@ body { margin: 0; background: #f6f7f8; color: #18191c;
   white-space: pre-wrap; word-break: break-all; }
 .ed-result { display: none; padding: 0 16px 24px; }
 .ed-result.ed-visible { display: block; }
-.ed-page-row { display: flex; align-items: center; gap: 8px; margin: 10px 0;
-  font-size: 13px; color: #61666d; }
+.ed-page-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 10px 0; font-size: 13px; color: #61666d; }
 .ed-page-row input { width: 110px; padding: 6px 8px; border: 1px solid #ccd0d6;
   border-radius: 6px; font-size: 13px; }
+#ed-page-confirm { padding: 6px 14px; border: none; border-radius: 6px;
+  background: #fb7299; color: #fff; font-size: 13px; cursor: pointer; }
+#ed-page-confirm:hover { filter: brightness(0.97); }
+#ed-result-body { display: none; }
+#ed-result-body.ed-visible { display: block; }
+.ed-preview-label { font-size: 13px; color: #61666d; margin: 6px 0; }
 .ed-result img { display: block; max-width: 100%; max-height: 75vh;
   border: 1px solid #e3e5e7; border-radius: 8px; background: #fff; }
 #ed-downloads { margin-top: 4px; }

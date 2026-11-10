@@ -441,7 +441,7 @@
       lastKeptCrops = result.keptCrops;
       const editBtn = document.createElement('button');
       editBtn.id = 'se-edit-btn';
-      editBtn.textContent = `✂️ 手动调整片段（${result.keptCrops.length} 张）`;
+      editBtn.textContent = '✂️ 手动调整片段';
       editBtn.addEventListener('click', openEditor);
       dl.appendChild(editBtn);
     } else {

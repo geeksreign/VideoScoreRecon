@@ -132,13 +132,31 @@ try {
   step('remerge', secondHref.startsWith('blob:') && secondHref !== firstHref
     && itemsAfter.join(',') === '100,200,300', `items=${itemsAfter.join(',')}`);
 
-  // 8. 每页 2 个片段 → 自动重合并 → 2 页 zip
+  const formState = await page.evaluate(() => ({
+    confirm: !!document.getElementById('ed-page-confirm'),
+    preview: (document.querySelector('.ed-preview-label') || {}).textContent,
+    body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+    links: document.querySelectorAll('#ed-downloads a').length,
+  }));
+  step('page_ui_init', formState.confirm && formState.preview === '首页预览：'
+    && formState.body && formState.links === 1, JSON.stringify(formState));
+
+  // 8. 每页 2 个片段 → 输入后需确认 → 2 页 zip
   const setPageSize = (v) => page.evaluate((val) => {
     const el = document.getElementById('ed-page-size');
     el.value = val;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, v);
+  const clickConfirm = () => page.evaluate(() => document.getElementById('ed-page-confirm').click());
   await setPageSize('2');
+  const pending2 = await page.evaluate(() => ({
+    body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+    links: document.querySelectorAll('#ed-downloads a').length,
+    status: document.getElementById('ed-status').textContent,
+  }));
+  step('page_pending_confirm', !pending2.body && pending2.links === 0
+    && pending2.status.includes('确认'), JSON.stringify(pending2));
+  await clickConfirm();
   await page.waitForFunction(() => {
     const a = document.querySelector('#ed-downloads a');
     return a && /\.zip$/.test(a.download) && /2 页/.test(a.textContent);
@@ -159,8 +177,14 @@ try {
     && paged2.pk && paged2.entries === 2 && /2 页/.test(paged2.text),
   JSON.stringify(paged2).slice(0, 240));
 
-  // 9. 每页 1 个片段 → 3 页 zip
+  // 9. 每页 1 个片段 → 需确认 → 3 页 zip
   await setPageSize('1');
+  const pending1 = await page.evaluate(() => ({
+    body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+    links: document.querySelectorAll('#ed-downloads a').length,
+  }));
+  step('page_pending_confirm_1', !pending1.body && pending1.links === 0, JSON.stringify(pending1));
+  await clickConfirm();
   await page.waitForFunction(() => {
     const a = document.querySelector('#ed-downloads a');
     return a && /\.zip$/.test(a.download) && /3 页/.test(a.textContent);
@@ -173,8 +197,14 @@ try {
   });
   step('page_1_zip_3', paged1.entries === 3 && /3 页/.test(paged1.text), JSON.stringify(paged1));
 
-  // 10. 清空 → 回到单页 PNG
+  // 10. 清空 → 需确认 → 回到单页 PNG
   await setPageSize('');
+  const pending0 = await page.evaluate(() => ({
+    body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+    links: document.querySelectorAll('#ed-downloads a').length,
+  }));
+  step('page_pending_confirm_empty', !pending0.body && pending0.links === 0, JSON.stringify(pending0));
+  await clickConfirm();
   await page.waitForFunction(() => {
     const a = document.querySelector('#ed-downloads a');
     return a && /\.png$/.test(a.download) && a.textContent === '下载';
