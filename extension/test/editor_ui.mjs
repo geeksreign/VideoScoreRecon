@@ -219,6 +219,39 @@ try {
   step('page_empty_png', back.links === 1 && /\.png$/.test(back.download)
     && back.text === '下载', JSON.stringify(back));
 
+  // 11. 填 = 总数（3 ≥ 3）→ 等价全部一页：确认后直接出单张 PNG，不再卡在待确认
+  await setPageSize('3');
+  await clickConfirm();
+  await page.waitForFunction(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return a && /\.png$/.test(a.download);
+  }, { timeout: 60000, polling: 300 });
+  const eqAll = await page.evaluate(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return {
+      body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+      status: document.getElementById('ed-status').textContent,
+      download: a.download, links: document.querySelectorAll('#ed-downloads a').length,
+    };
+  });
+  step('page_eq_total_single', eqAll.body && eqAll.links === 1 && /\.png$/.test(eqAll.download)
+    && /1 段输出/.test(eqAll.status), JSON.stringify(eqAll));
+
+  // 12. 填 > 总数（5）→ 同样全部一页
+  await setPageSize('5');
+  await clickConfirm();
+  await page.waitForFunction(() => {
+    const a = document.querySelector('#ed-downloads a');
+    return a && /\.png$/.test(a.download);
+  }, { timeout: 60000, polling: 300 });
+  const gtAll = await page.evaluate(() => ({
+    body: document.getElementById('ed-result-body').classList.contains('ed-visible'),
+    status: document.getElementById('ed-status').textContent,
+    links: document.querySelectorAll('#ed-downloads a').length,
+  }));
+  step('page_gt_total_single', gtAll.body && gtAll.links === 1
+    && /1 段输出/.test(gtAll.status), JSON.stringify(gtAll));
+
   code = code === 1 ? 1 : 0;
 } catch (e) {
   console.error('DRIVER FAIL:', e.message);

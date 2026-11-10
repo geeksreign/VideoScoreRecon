@@ -21,14 +21,14 @@
   <div class="hint">
     <b>推荐用法（默认，零配置）</b>：<br>
     1. 打开任意 B 站视频页，点右下角「🎼 提取乐谱」<br>
-    2. 填写时间范围（可空），点「开始提取」<br>
-    3. 完成后预览、下载拼接长图——不上传任何数据
+    2. 时间范围默认已填全片（可改），点「开始提取」<br>
+    3. 完成后本页预览、下载结果；想删改/排序/分页可点「✂️ 手动调整片段」——全程本机处理，不上传任何数据
   </div>
 
   <h2>视频画质（提取用）</h2>
-  <label>默认 480P：与本地 Python 管线同源，去重与结果对比最稳定</label>
+  <label>默认 480P：无需登录可稳定获取，处理最快</label>
   <select id="quality">
-    <option value="480">480P（默认，与本地 Python 一致）</option>
+    <option value="480">480P（默认，无需登录即可获取）</option>
     <option value="720">720P</option>
     <option value="1080">1080P</option>
     <option value="player">跟随播放器（嗅探优先，画质=正在观看的流）</option>

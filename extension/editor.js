@@ -166,7 +166,10 @@
 
   function readPageSize() {
     const n = parseInt(($('ed-page-size').value || '').trim(), 10);
-    return Number.isInteger(n) && n > 0 ? n : null;
+    if (!(Number.isInteger(n) && n > 0)) return null;
+    // 填 n >= 总片段数 = 全部一页（worker 侧语义一致，null 即单页）
+    if (state.items.length && n >= state.items.length) return null;
+    return n;
   }
 
   function merge() {
