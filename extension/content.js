@@ -149,14 +149,16 @@
 
     const btn = document.createElement('button');
     btn.id = 'score-ext-btn';
-    btn.textContent = '🎼 提取乐谱';
+    btn.innerHTML =
+      `<span class="se-float-label">点击提取视频中的乐谱🎼</span>` +
+      `<img class="se-float-logo" src="${chrome.runtime.getURL('icons/logo.png')}" alt="">`;
     btn.addEventListener('click', togglePanel);
     document.body.appendChild(btn);
 
     const panel = document.createElement('div');
     panel.id = 'score-ext-panel';
     panel.innerHTML = `
-      <h3>🎼 视频乐谱提取器</h3>
+      <h3><img class="vsr-logo" src="${chrome.runtime.getURL('icons/logo.png')}" alt="ScoreStitch"> ScoreStitch</h3>
       <div class="se-row se-times">
         <div class="se-time">
           <label>开始时间</label>

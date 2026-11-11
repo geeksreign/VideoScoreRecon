@@ -1,4 +1,4 @@
-# VideoScoreRecon 视频乐谱提取器
+# ScoreStitch（原 VideoScoreRecon 视频乐谱提取器）
 
 从视频（本地文件 / B 站 URL / B 站网页）中自动检测、裁剪滚动乐谱区域，
 抽帧去重后纵向拼接为一张完整乐谱长图。
@@ -13,7 +13,7 @@
 ## 快速开始（Chrome 扩展，零配置）
 
 1. `chrome://extensions` → 打开「开发者模式」→「加载已解压的扩展程序」→ 选择本仓库的 `extension/` 目录
-2. 打开任意 B 站视频页（如 `https://www.bilibili.com/video/BV1jW41117JQ/`），点击右下角 **「🎼 提取乐谱」**
+2. 打开任意 B 站视频页（如 `https://www.bilibili.com/video/BV1jW41117JQ/`），点击右下角白色圆形 logo 按钮（悬停显示「点击提取视频中的乐谱 🎼」）
 3. 填写时间范围（可空 = 全片），点「开始提取」→ 下载 → 抽帧 → 拼接 → 预览/下载 PNG
 
 > 若页面右下角没有按钮：在 `chrome://extensions` 找到本扩展 → 「站点访问权限」→ 勾选「在所有站点上」。
@@ -63,7 +63,7 @@ node test/extension_smoke.mjs         # 真站冒烟（需可加载扩展的 Chr
 Chrome 137+ 的 headless/CDP 无法可靠加载 unpacked 扩展，真机注入请手动验收：
 
 1. 按「快速开始」加载 `extension/`
-2. 打开 B 站视频页 → 按钮出现 → 点击「🎼 提取乐谱」
+2. 打开 B 站视频页 → 按钮出现 → 点击右下角白色 logo 按钮（悬停显示「点击提取视频中的乐谱 🎼」）
 3. 一次完整提取：进度条走完 → 预览出现 → 下载 PNG 成功
 
 > 扩展测试专用浏览器：`extension/.browsers/`（gitignore，`npx @puppeteer/browsers install

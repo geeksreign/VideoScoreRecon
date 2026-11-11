@@ -1,6 +1,6 @@
 # 隐私政策（Privacy Policy）
 
-**视频乐谱提取器（Video Score Reconciler / 视频乐谱提取器 Chrome 扩展）**
+**ScoreStitch（Chrome 扩展，视频乐谱提取）**
 
 最后更新：2026-11-04
 

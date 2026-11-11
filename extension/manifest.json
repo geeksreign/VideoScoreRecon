@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "视频乐谱提取器",
+  "name": "ScoreStitch",
   "version": "1.0.0",
   "description": "从 B 站视频页一键提取滚动乐谱并拼接为完整乐谱长图——全部处理在本机浏览器完成，不上传任何视频或 Cookie。",
   "permissions": ["storage"],
@@ -20,7 +20,7 @@
   "optional_host_permissions": ["*://*/*"],
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_title": "视频乐谱提取器设置",
+    "default_title": "ScoreStitch 设置",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -40,12 +40,12 @@
     {
       "matches": ["https://www.bilibili.com/video/*"],
       "js": ["src/b64.js", "src/acquire.js", "content.js"],
-      "css": ["panel.css"]
+      "css": ["ui.css", "panel.css"]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["worker_host.html", "src/worker.js"],
+      "resources": ["worker_host.html", "src/worker.js", "icons/logo.png"],
       "matches": ["https://*.bilibili.com/*"]
     }
   ]
