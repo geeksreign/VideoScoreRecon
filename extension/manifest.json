@@ -14,8 +14,7 @@
     "*://*.bilivideo.cn/*",
     "*://*.mountaintoys.cn/*",
     "*://*.akamaized.net/*",
-    "*://*.hdslb.com/*",
-    "http://127.0.0.1:8000/*"
+    "*://*.hdslb.com/*"
   ],
   "optional_host_permissions": ["*://*/*"],
   "background": { "service_worker": "background.js" },
