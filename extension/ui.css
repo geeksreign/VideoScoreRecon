@@ -1,0 +1,75 @@
+/* 共享设计 token 与按钮基类（面板/设置页/微调页共用）：
+ * - 命名空间 --vsr-* 避免与宿主页（B 站）自定义属性冲突
+ * - 刻意不含裸 button/裸 a 选择器：content script 环境不能影响页面自身样式
+ * 色彩语义：粉=主操作，蓝=下载/网络类，灰=中性，白底粉边=描边强调 */
+:root {
+  --vsr-pink: #4F63D9;
+  --vsr-pink-bg: #F2F4FF;
+  --vsr-blue: #00aeec;
+  --vsr-gray-bg: #f1f2f3;
+  --vsr-gray-text: #61666d;
+  --vsr-muted: #9499a0;
+  --vsr-border: #e3e5e7;
+  --vsr-input-border: #ccd0d6;
+  --vsr-radius: 6px;
+}
+
+.vsr-btn {
+  border: none;
+  border-radius: var(--vsr-radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: filter 0.15s;
+  font-family: inherit;
+}
+
+.vsr-btn:hover:not(:disabled),
+.vsr-btn:focus-visible:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.vsr-btn:focus-visible {
+  outline: 2px solid var(--vsr-pink);
+  outline-offset: 2px;
+}
+
+.vsr-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 主操作：粉实心 */
+.vsr-btn-primary {
+  background: var(--vsr-pink);
+  color: #fff;
+}
+
+/* 下载/网络类动作：蓝实心 */
+.vsr-btn-accent {
+  background: var(--vsr-blue);
+  color: #fff;
+}
+
+/* 中性操作：浅灰 */
+.vsr-btn-ghost {
+  background: var(--vsr-gray-bg);
+  color: var(--vsr-gray-text);
+}
+
+/* 描边强调：白底粉边粉字 */
+.vsr-btn-outline {
+  background: #fff;
+  border: 1px solid var(--vsr-pink);
+  color: var(--vsr-pink);
+}
+
+.vsr-btn-outline:hover:not(:disabled) {
+  background: var(--vsr-pink-bg);
+}
+
+/* 圆形品牌 logo（透明圆图，页面内展示用） */
+.vsr-logo {
+  border-radius: 50%;
+  vertical-align: middle;
+  display: inline-block;
+}
