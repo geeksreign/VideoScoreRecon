@@ -6,9 +6,11 @@ CLI（src/main.py）与本地服务（src/server/）共用此模块。
 
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 SRC = Path(__file__).resolve().parent
 sys.path.insert(0, str(SRC / "videocore"))
+sys.path.insert(0, str(SRC / "video_scrap"))
 sys.path.insert(0, str(SRC / "video_scrap" / "bili"))
 
 from video_io import extract_and_crop  # noqa: E402
@@ -31,6 +33,33 @@ def _parse_time(s):
             return h * 3600 + m * 60 + sec
         raise ValueError(f"无法解析时间: {s}")
     return float(s)
+
+
+def _is_youtube_url(url):
+    """判断 URL 是否为 YouTube 视频（含 youtu.be 短链）"""
+    host = urlparse(url).netloc.lower()
+    return any(
+        host == d or host.endswith("." + d)
+        for d in ("youtube.com", "youtu.be", "youtube-nocookie.com")
+    )
+
+
+def _download_youtube(url, data_dir, on_progress=None):
+    """
+    把 YouTube 视频 URL 下载为本地 mp4，放到 <data_dir>/<标题>/video/ 下
+
+    on_progress(progress, message)：progress 为 0~1
+
+    Returns:
+        (本地 mp4 路径, 视频信息 dict)
+    """
+    from ytdlp.downloader import download_youtube_video_to_dir
+
+    path, info = download_youtube_video_to_dir(
+        url, data_dir, on_progress=on_progress)
+    print(f"下载完成: {info.get('title')} "
+          f"({info.get('width')}x{info.get('height')}) -> {path}")
+    return str(path), info
 
 
 def _download_from_url(url, data_dir, cookie=None, on_progress=None):
@@ -85,9 +114,14 @@ def run_pipeline(video_input, data_dir, interval_sec=2, dedup_threshold=0.01,
     info = None
     if video_path.startswith(('http://', 'https://')):
         report("download", 0.0, "解析视频信息")
-        video_path, info = _download_from_url(
-            video_path, data_dir, cookie,
-            on_progress=lambda p, m: report("download", p, m))
+        if _is_youtube_url(video_path):
+            video_path, info = _download_youtube(
+                video_path, data_dir,
+                on_progress=lambda p, m: report("download", p, m))
+        else:
+            video_path, info = _download_from_url(
+                video_path, data_dir, cookie,
+                on_progress=lambda p, m: report("download", p, m))
 
     saved = extract_and_crop(
         video_path=video_path, data_dir=data_dir,

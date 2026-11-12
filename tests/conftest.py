@@ -9,6 +9,7 @@ for _p in (
     REPO / "src",
     REPO / "src" / "server",
     REPO / "src" / "videocore",
+    REPO / "src" / "video_scrap",
     REPO / "src" / "video_scrap" / "bili",
 ):
     s = str(_p)
