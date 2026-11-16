@@ -1,0 +1,108 @@
+#score-ext-btn {
+  position: fixed;
+  right: 24px;
+  top: 120px;
+  z-index: 2147483000;
+  background: #fb7299;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+#score-ext-panel {
+  position: fixed;
+  right: 24px;
+  top: 170px;
+  z-index: 2147483001;
+  width: 340px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e3e5e7;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #18191c;
+  display: none;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+#score-ext-panel.se-open { display: block; }
+
+#score-ext-panel h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+#score-ext-panel .se-row { margin-bottom: 10px; }
+#score-ext-panel label { font-size: 12px; color: #61666d; display: block; margin-bottom: 3px; }
+#score-ext-panel input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #ccd0d6;
+  border-radius: 6px;
+  font-size: 13px;
+}
+#score-ext-panel input[readonly] { background: #f6f7f8; color: #61666d; }
+
+#score-ext-panel .se-status {
+  font-size: 12px;
+  color: #61666d;
+  margin: 8px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#score-ext-panel .se-bar-wrap {
+  height: 8px;
+  background: #f1f2f3;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 6px 0;
+  display: none;
+}
+#score-ext-panel .se-bar-wrap.se-visible { display: block; }
+#score-ext-panel .se-bar {
+  height: 100%;
+  width: 0%;
+  background: #fb7299;
+  transition: width 0.3s;
+}
+
+#score-ext-panel .se-actions { display: flex; gap: 8px; margin-top: 4px; }
+#score-ext-panel button {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#se-start-btn { background: #fb7299; color: #fff; }
+#se-close-btn { background: #f1f2f3; color: #61666d; }
+
+#score-ext-panel #se-result { display: none; margin-top: 8px; }
+#score-ext-panel #se-result.se-visible { display: block; }
+#score-ext-panel #se-result img {
+  max-width: 100%;
+  border: 1px solid #e3e5e7;
+  border-radius: 6px;
+  max-height: 300px;
+}
+#score-ext-panel #se-download {
+  display: block;
+  text-align: center;
+  margin-top: 6px;
+  padding: 8px;
+  background: #00aeec;
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 13px;
+}
