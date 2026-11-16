@@ -3,14 +3,14 @@
 从视频（本地文件 / B 站 URL / YouTube URL）中自动检测、裁剪滚动乐谱区域，
 抽帧去重后纵向拼接为一张完整乐谱长图，供个人学习参考。
 
-双形态（本分支为 dev 开发版，Python 为主、扩展为辅）：
+双形态（Python 为主、扩展为辅）：
 
 | 形态 | 说明 |
 |---|---|
 | **Python CLI / 本地服务** | `src/` — imageio + OpenCV 流水线：下载 → 抽帧 → 检测裁剪 → 去重 → 拼接；可选 FastAPI 本地服务（供扩展调用） |
 | **Chrome 扩展 0.1.0** | `extension/` — B 站视频页薄客户端：页面内按钮/面板，经 `http://127.0.0.1:8000` 调用本地服务完成提取 |
 
-> 扩展的现代完整版（i18n、微调页、画质设置、扩展内取流等）在独立私有仓库 **`VideoScoreRecon-ext`** 维护；本分支的扩展仅作 Python 流水线的浏览器前端。
+> 当前扩展为 0.1.0 薄客户端，仅作 Python 流水线的浏览器前端。
 
 ## 快速开始（Python CLI）
 
@@ -101,9 +101,6 @@ run_pipeline（pipeline.py）
  └─ server/jobs.py 包装为串行任务队列（单 worker）
 ```
 
-两侧算法参数与注释对应扩展的人口移植实现（`extension/src/pipeline/`，在私有仓库 VideoScoreRecon-ext 维护），
-本分支主要维护 Python 参考实现。
-
 ## 开发与测试
 
 ```bash
@@ -128,6 +125,7 @@ src/                  Python 主项目
 tests/                pytest 测试
 test/                 手工工具（dedup 对比等）
 extension/            Chrome 扩展 0.1.0（B 站页薄客户端）
+extension/PRIVACY.md  扩展商店隐私政策（数据零上传说明）
 data/                 运行数据（gitignore）
 ```
 
@@ -137,4 +135,4 @@ data/                 运行数据（gitignore）
 - 拼接输出为单张 PNG（`final/res.png`），无超高分段
 - B 站 playurl 接口可能变动（WBI 签名未实现）；游客画质有限
 - YouTube 下载依赖 yt-dlp 与网络可达性，会员专享内容不可下载
-- 扩展为 0.1.0 薄客户端，需本地服务在线；完整功能见私有仓库 VideoScoreRecon-ext
+- 扩展为 0.1.0 薄客户端，需本地服务在线
